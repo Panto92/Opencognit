@@ -1,6 +1,6 @@
 #!/bin/bash
 # OpenCognit Installer
-# Usage: bash <(curl -fsSL https://raw.githubusercontent.com/OpenCognit/opencognit/main/install.sh)
+# Usage: bash <(curl -fsSL https://raw.githubusercontent.com/Panto92/Opencognit/main/install.sh)
 
 set -e
 
@@ -78,7 +78,7 @@ read -r -p "  › " API_KEY </dev/tty
 
 # ── Clone ─────────────────────────────────────────────────────────────────────
 step 2 5 "Cloning OpenCognit…"
-REPO="https://github.com/OpenCognit/opencognit.git"
+REPO="https://github.com/Panto92/Opencognit.git"
 git clone --depth=1 "$REPO" "$PROJECT_NAME" || fail "Could not clone $REPO — check your internet connection."
 ok "Repository cloned → $PROJECT_NAME"
 
@@ -176,7 +176,7 @@ case "\$1" in
     echo -e "    \${GOLD}opencognit help\${RESET}       Show this help"
     echo -e "\n  \${BOLD}Install dir:\${RESET} \$INSTALL_DIR"
     echo -e "  \${BOLD}URL:\${RESET}          http://localhost:\${PORT}"
-    echo -e "  \${BOLD}Docs:\${RESET}         https://github.com/OpenCognit/opencognit\n"
+    echo -e "  \${BOLD}Docs:\${RESET}         https://github.com/Panto92/Opencognit\n"
     ;;
   *)
     echo -e "\n  \${GOLD}\${BOLD}Starting OpenCognit...\${RESET}"
@@ -209,5 +209,5 @@ echo -e "    ${GOLD}${BOLD}opencognit${RESET}"
 echo ""
 echo -e "  Then open ${GOLD}${BOLD}http://localhost:${PORT}${RESET} and create your account."
 echo ""
-echo -e "  \033[2mGitHub: https://github.com/OpenCognit/opencognit${RESET}"
+echo -e "  \033[2mGitHub: https://github.com/Panto92/Opencognit${RESET}"
 echo ""

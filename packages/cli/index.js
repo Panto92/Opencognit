@@ -25,7 +25,7 @@ import crypto from 'crypto';
 import { createRequire } from 'module';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const REPO_URL    = 'https://github.com/OpenCognit/Opencognit.git';
+const REPO_URL    = 'https://github.com/Panto92/Opencognit.git';
 const INSTALL_DIR = path.join(os.homedir(), '.opencognit');
 const ENV_PATH    = path.join(INSTALL_DIR, '.env');
 const DB_PATH     = path.join(INSTALL_DIR, 'opencognit.db');
