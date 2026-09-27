@@ -1,6 +1,6 @@
 # @opencognit/cli
 
-Zero-config launcher for [OpenCognit](https://github.com/OpenCognit/Opencognit) — the autonomous agent platform.
+Zero-config launcher for [OpenCognit](https://github.com/Panto92/Opencognit) — the autonomous agent platform.
 
 ## Usage
 

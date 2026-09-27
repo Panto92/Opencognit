@@ -11,10 +11,10 @@ The AI agent orchestration OS — CEO orchestrator, persistent memory, real exec
 [![Commercial License](https://img.shields.io/badge/license-Commercial-gold)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node-%3E%3D20-green)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org)
-[![GitHub Stars](https://img.shields.io/github/stars/OpenCognit/opencognit?style=social)](https://github.com/OpenCognit/opencognit/stargazers)
+[![GitHub Stars](https://img.shields.io/github/stars/Panto92/Opencognit?style=social)](https://github.com/Panto92/Opencognit/stargazers)
  
 
-[![Star History Chart](https://api.star-history.com/svg?repos=OpenCognit/opencognit&type=Date)](https://star-history.com/#OpenCognit/opencognit&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=Panto92/Opencognit&type=Date)](https://star-history.com/#Panto92/Opencognit&Date)
 
 </div>
 
@@ -84,7 +84,7 @@ You → Goal → CEO Agent → Dev Agent → Writer Agent → Researcher Agent
 
 ```bash
 # 1. Clone
-git clone https://github.com/OpenCognit/opencognit.git
+git clone https://github.com/Panto92/Opencognit.git
 cd opencognit
 
 # 2. Setup
