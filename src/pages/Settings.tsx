@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Save, RotateCcw, Globe, Shield, Bell, Database, Loader2, Key, Sparkles, Download, Upload, CheckCircle2, AlertCircle, Trash2, AlertTriangle, FolderOpen, Send, Terminal, RefreshCw, Zap, Plus, X, ChevronDown, Cpu, Wifi, WifiOff } from 'lucide-react';
+import { Save, RotateCcw, Globe, Shield, Bell, Database, Loader2, Key, Sparkles, Download, Upload, CheckCircle2, AlertCircle, Trash2, AlertTriangle, FolderOpen, Send, Terminal, RefreshCw, Zap, Plus, X, ChevronDown, Cpu, Wifi, WifiOff, Settings2 } from 'lucide-react';
+
+type SettingsTab = 'general' | 'providers' | 'cli' | 'integrations' | 'budget' | 'system';
 
 interface CustomConnection {
   id: string;
@@ -94,8 +96,9 @@ export function Settings() {
   const [googleKey, setGoogleKey] = useState('');
   const [moonshotKey, setMoonshotKey] = useState('');
   const [poeKey, setPoeKey] = useState('');
-  const [activeProviderTab, setActiveProviderTab] = useState<'openrouter' | 'anthropic' | 'openai' | 'google' | 'moonshot' | 'poe'>('openrouter');
+  const [activeProviderTab, setActiveProviderTab] = useState<'openrouter' | 'anthropic' | 'openai' | 'google' | 'moonshot' | 'poe' | 'ollama'>('openrouter');
   const [ollamaUrl, setOllamaUrl] = useState('');
+  const [ollamaApiKey, setOllamaApiKey] = useState('');
   const [ollamaStatus, setOllamaStatus] = useState<'idle' | 'checking' | 'online' | 'offline'>('idle');
   const [ollamaModels, setOllamaModels] = useState<{ id: string; name: string; size?: number }[]>([]);
   const [ollamaDefaultModel, setOllamaDefaultModel] = useState('');
@@ -138,6 +141,16 @@ export function Settings() {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggleSection = (key: string) =>
     setCollapsed(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
+
+  // Active settings tab — persisted in localStorage
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
+    const saved = localStorage.getItem('oc_settings_tab') as SettingsTab | null;
+    return saved ?? 'general';
+  });
+  const switchTab = (tab: SettingsTab) => {
+    setActiveTab(tab);
+    localStorage.setItem('oc_settings_tab', tab);
+  };
 
   const checkWorkDir = async (dir: string) => {
     if (!aktivesUnternehmen || !dir.trim()) return;
@@ -185,6 +198,7 @@ export function Settings() {
         setPoeKey(data.poe_api_key || '');
         setDefaultModel(data.openrouter_default_model || 'openrouter/auto');
         setOllamaUrl(data.ollama_base_url || '');
+        setOllamaApiKey(data.ollama_api_key || '');
         setOllamaDefaultModel(data.ollama_default_model || '');
         // Load custom connections — migrate from legacy single-connection fields if list is empty
         let conns: CustomConnection[] = [];
@@ -405,6 +419,7 @@ export function Settings() {
         ['poe_api_key', poeKey],
         ['openrouter_default_model', defaultModel],
         ['ollama_base_url', ollamaUrl],
+        ['ollama_api_key', ollamaApiKey],
         ['ollama_default_model', ollamaDefaultModel],
         ['custom_connections', JSON.stringify(customConnections)],
         ['budget_pause_threshold', String(budgetPauseThreshold)],
@@ -555,7 +570,63 @@ export function Settings() {
 
           <PageHelp id="settings" lang={i18n.language} />
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {/* ── Two-column layout: Tab nav left + Content right ── */}
+          <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
+
+            {/* Left Tab Navigation */}
+            <nav style={{
+              width: '200px',
+              flexShrink: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '2px',
+              position: 'sticky',
+              top: '1rem',
+            }}>
+              {([
+                { id: 'general' as SettingsTab, icon: Globe, label: i18n.language === 'de' ? 'Allgemein' : 'General', color: '#c5a059' },
+                { id: 'providers' as SettingsTab, icon: Key, label: i18n.language === 'de' ? 'AI Provider' : 'AI Providers', color: '#9b87c8' },
+                { id: 'cli' as SettingsTab, icon: Terminal, label: 'CLI Tools', color: '#22c55e' },
+                { id: 'integrations' as SettingsTab, icon: Zap, label: i18n.language === 'de' ? 'Integrationen' : 'Integrations', color: '#0088cc' },
+                { id: 'budget' as SettingsTab, icon: Shield, label: i18n.language === 'de' ? 'Budget & Kontrolle' : 'Budget & Control', color: '#eab308' },
+                { id: 'system' as SettingsTab, icon: Database, label: 'System', color: '#ef4444' },
+              ] as const).map(tab => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => switchTab(tab.id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.625rem',
+                      padding: '0.625rem 0.875rem',
+                      background: isActive ? `${tab.color}18` : 'transparent',
+                      border: isActive ? `1px solid ${tab.color}35` : '1px solid transparent',
+                      borderRadius: 0,
+                      color: isActive ? tab.color : '#71717a',
+                      fontSize: '0.8125rem',
+                      fontWeight: isActive ? 700 : 500,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      width: '100%',
+                      transition: 'all 0.15s',
+                    }}
+                    onMouseEnter={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.color = '#d4d4d8'; (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; } }}
+                    onMouseLeave={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.color = '#71717a'; (e.currentTarget as HTMLElement).style.background = 'transparent'; } }}
+                  >
+                    <Icon size={15} />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* Right Content — conditionally show sections by activeTab */}
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            {/* ── TAB: General ── */}
+            {activeTab === 'general' && <>
             {/* Allgemein */}
             <div className="glass-card" style={{
               padding: '1.5rem',
@@ -626,8 +697,48 @@ export function Settings() {
                       : 'Shows the interactive interface tour again.'}
                   </p>
                 </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: '#d4d4d8', marginBottom: '0.5rem' }}>
+                    {i18n.language === 'de' ? 'Oberfläche' : 'Interface'}
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <button
+                      onClick={() => {
+                        const next = localStorage.getItem('oc_simple_mode') === '1' ? '0' : '1';
+                        localStorage.setItem('oc_simple_mode', next);
+                        window.dispatchEvent(new Event('storage'));
+                        window.location.reload();
+                      }}
+                      style={{
+                        position: 'relative', width: '44px', height: '24px', borderRadius: 0,
+                        backgroundColor: localStorage.getItem('oc_simple_mode') === '1' ? '#c5a059' : 'rgba(255,255,255,0.1)',
+                        border: 'none', cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0,
+                      }}
+                    >
+                      <span style={{
+                        position: 'absolute', top: '3px',
+                        left: localStorage.getItem('oc_simple_mode') === '1' ? '23px' : '3px',
+                        width: '18px', height: '18px', borderRadius: '50%',
+                        backgroundColor: '#ffffff', transition: 'left 0.2s', display: 'block',
+                      }} />
+                    </button>
+                    <span style={{ fontSize: '0.8125rem', color: '#d4d4d8', fontWeight: 500 }}>
+                      {i18n.language === 'de' ? 'Einfacher Modus' : 'Simple Mode'}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '0.75rem', color: '#52525b', marginTop: '0.375rem' }}>
+                    {i18n.language === 'de'
+                      ? 'Blendet fortgeschrittene Module aus der Sidebar aus. Chat, Dashboard, Team und Aufgaben bleiben sichtbar.'
+                      : 'Hides advanced modules from the sidebar. Chat, Dashboard, Team and Tasks remain visible.'}
+                  </p>
+                </div>
               </div>}
             </div>
+            </>
+            }
+
+            {/* ── TAB: Integrations (OpenClaw + Telegram) ── */}
+            {activeTab === 'integrations' && <>
 
             {/* OpenClaw Gateway */}
             <div className="glass-card" style={{
@@ -933,6 +1044,11 @@ export function Settings() {
                 ['telegram_chat_id', telegramChatId],
               ])} />}
             </div>
+            </>
+            }
+
+            {/* ── TAB: CLI Tools ── */}
+            {activeTab === 'cli' && <>
             {/* CLI Tools — unified tabbed view */}
             <div className="glass-card" style={{
               padding: '1.5rem',
@@ -1190,7 +1306,11 @@ export function Settings() {
                 );
               })()}
             </div>
+            </>
+            }
 
+            {/* ── TAB: AI Providers ── */}
+            {activeTab === 'providers' && <>
             {/* API Keys */}
             <div className="glass-card" style={{
               padding: '1.5rem',
@@ -1207,186 +1327,187 @@ export function Settings() {
                 </div>
                 <ChevronDown size={16} style={{ color: '#52525b', transition: 'transform 0.2s', transform: collapsed.has('apikeys') ? 'rotate(-90deg)' : 'rotate(0deg)', flexShrink: 0 }} />
               </div>
-              {!collapsed.has('apikeys') && <><div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                {/* Provider Tabs */}
+              {!collapsed.has('apikeys') && <><div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+                {/* ── Provider Dropdown (BYOK) ── */}
                 {(() => {
-                  const PROVIDER_TABS = [
-                    { id: 'openrouter' as const, label: 'OpenRouter', badge: 'Empfohlen', color: '#c5a059', keyState: openrouterKey },
-                    { id: 'anthropic' as const, label: 'Anthropic', badge: 'Claude', color: '#d4a574', keyState: anthropicKey },
-                    { id: 'openai' as const, label: 'OpenAI', badge: 'GPT', color: '#10a37f', keyState: openaiKey },
-                    { id: 'google' as const, label: 'Google', badge: 'Gemini', color: '#4285f4', keyState: googleKey },
-                    { id: 'moonshot' as const, label: 'Moonshot', badge: 'Kimi', color: '#a78bfa', keyState: moonshotKey },
-                    { id: 'poe' as const, label: 'Poe', badge: 'Multi', color: '#f59e0b', keyState: poeKey },
-                  ];
-                  const active = PROVIDER_TABS.find(t => t.id === activeProviderTab)!;
-                  const inputMap: Record<string, { label: string; placeholder: string; hint: string; value: string; onChange: (v: string) => void }> = {
-                    openrouter: { label: 'OpenRouter API Key', placeholder: 'sk-or-v1-...', hint: i18n.t.einstellungen.openrouterHint, value: openrouterKey, onChange: setOpenrouterKey },
-                    anthropic: { label: 'Anthropic API Key', placeholder: 'sk-ant-api03-...', hint: i18n.t.einstellungen.anthropicHint, value: anthropicKey, onChange: setAnthropicKey },
-                    openai: { label: 'OpenAI API Key', placeholder: 'sk-proj-...', hint: i18n.t.einstellungen.openaiHint, value: openaiKey, onChange: setOpenaiKey },
-                    google: { label: 'Google Gemini API Key', placeholder: 'AIza...', hint: 'Google AI Studio → Create API key', value: googleKey, onChange: setGoogleKey },
-                    moonshot: { label: 'Moonshot API Key', placeholder: 'sk-kimi-...', hint: 'Moonshot Console → API Key', value: moonshotKey, onChange: setMoonshotKey },
-                    poe: { label: 'Poe API Key', placeholder: 'sk-poe-...', hint: 'poe.com/api_key → Create API key', value: poeKey, onChange: setPoeKey },
-                  };
-                  const inp = inputMap[activeProviderTab];
+                  const PROVIDERS = [
+                    { id: 'openrouter' as const, label: 'OpenRouter', badge: 'Empfohlen', color: '#c5a059',
+                      keyState: openrouterKey, placeholder: 'sk-or-v1-...', hint: i18n.t.einstellungen.openrouterHint,
+                      value: openrouterKey, onChange: setOpenrouterKey },
+                    { id: 'anthropic' as const, label: 'Anthropic', badge: 'Claude', color: '#d4a574',
+                      keyState: anthropicKey, placeholder: 'sk-ant-api03-...', hint: i18n.t.einstellungen.anthropicHint,
+                      value: anthropicKey, onChange: setAnthropicKey },
+                    { id: 'openai' as const, label: 'OpenAI', badge: 'GPT', color: '#10a37f',
+                      keyState: openaiKey, placeholder: 'sk-proj-...', hint: i18n.t.einstellungen.openaiHint,
+                      value: openaiKey, onChange: setOpenaiKey },
+                    { id: 'google' as const, label: 'Google', badge: 'Gemini', color: '#4285f4',
+                      keyState: googleKey, placeholder: 'AIza...', hint: 'Google AI Studio → Create API key',
+                      value: googleKey, onChange: setGoogleKey },
+                    { id: 'moonshot' as const, label: 'Moonshot', badge: 'Kimi', color: '#a78bfa',
+                      keyState: moonshotKey, placeholder: 'sk-kimi-...', hint: 'Moonshot Console → API Key',
+                      value: moonshotKey, onChange: setMoonshotKey },
+                    { id: 'poe' as const, label: 'Poe', badge: 'Multi', color: '#f59e0b',
+                      keyState: poeKey, placeholder: 'sk-poe-...', hint: 'poe.com/api_key → Create API key',
+                      value: poeKey, onChange: setPoeKey },
+                    { id: 'ollama' as const, label: 'Ollama', badge: 'Lokal', color: '#22c55e',
+                      keyState: ollamaUrl, placeholder: '', hint: i18n.t.einstellungen.ollamaPrivateHint,
+                      value: '', onChange: (_v: string) => {} },
+                  ] as const;
+                  const active = PROVIDERS.find(p => p.id === activeProviderTab) ?? PROVIDERS[0];
+                  const isOllama = activeProviderTab === 'ollama';
                   return (
                     <>
-                      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
-                        {PROVIDER_TABS.map(tab => (
-                          <button
-                            key={tab.id}
-                            onClick={() => setActiveProviderTab(tab.id)}
+                      {/* Dropdown selector */}
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>
+                          {i18n.language === 'de' ? 'AI Provider — BYOK' : 'AI Provider — BYOK'}
+                        </label>
+                        <div style={{ position: 'relative', maxWidth: 360 }}>
+                          <select
+                            value={activeProviderTab}
+                            onChange={e => setActiveProviderTab(e.target.value as typeof activeProviderTab)}
                             style={{
-                              display: 'flex', alignItems: 'center', gap: '0.375rem',
-                              padding: '0.375rem 0.75rem',
-                              borderRadius: 0,
-                              border: 'none',
-                              cursor: 'pointer',
-                              fontSize: '0.75rem', fontWeight: 600,
-                              background: activeProviderTab === tab.id ? `${tab.color}22` : 'rgba(255,255,255,0.04)',
-                              color: activeProviderTab === tab.id ? tab.color : '#a1a1aa',
-                              borderBottom: activeProviderTab === tab.id ? `2px solid ${tab.color}` : '2px solid transparent',
+                              width: '100%', padding: '0.625rem 2.5rem 0.625rem 0.875rem',
+                              background: `${active.color}12`,
+                              border: `1px solid ${active.color}40`,
+                              borderRadius: 0, color: '#ffffff', fontSize: '0.875rem',
+                              fontWeight: 600, cursor: 'pointer', appearance: 'none',
+                              WebkitAppearance: 'none',
                             }}
                           >
-                            {tab.label}
-                            {tab.badge && <span style={{ fontSize: '0.625rem', padding: '1px 5px', borderRadius: 0, background: activeProviderTab === tab.id ? `${tab.color}33` : 'rgba(255,255,255,0.08)', color: activeProviderTab === tab.id ? tab.color : '#71717a' }}>{tab.badge}</span>}
-                            {tab.keyState && <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />}
-                          </button>
-                        ))}
+                            {PROVIDERS.map(p => (
+                              <option key={p.id} value={p.id} style={{ background: '#18181b', color: '#fff', fontWeight: 600 }}>
+                                {p.label}{p.badge ? ` — ${p.badge}` : ''}{(p.id !== 'ollama' && p.value) || (p.id === 'ollama' && ollamaUrl) ? ' ✓' : ''}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown size={15} style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: active.color, pointerEvents: 'none' }} />
+                        </div>
                       </div>
-                      <div key={activeProviderTab}>
-                        <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: '#d4d4d8', marginBottom: '0.5rem' }}>
-                          {inp.label}
-                          {inp.value && <span style={{ marginLeft: '0.5rem', fontSize: '0.6875rem', color: '#22c55e', fontWeight: 600 }}>{i18n.t.einstellungen.apiKeySaved}</span>}
-                        </label>
-                        <input
-                          type="password"
-                          placeholder={inp.placeholder}
-                          value={inp.value}
-                          onChange={e => inp.onChange(e.target.value)}
-                          autoComplete="new-password"
-                          style={{
-                            maxWidth: 400, width: '100%', padding: '0.625rem 0.875rem',
-                            backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                            border: `1px solid ${inp.value ? 'rgba(34, 197, 94, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`,
-                            borderRadius: 0, color: '#ffffff', fontSize: '0.875rem',
-                          }}
-                        />
-                        <p style={{ fontSize: '0.75rem', color: '#71717a', marginTop: '0.375rem' }}>{inp.hint}</p>
-                      </div>
+
+                      {/* Cloud provider: single API key input */}
+                      {!isOllama && (
+                        <div key={activeProviderTab} style={{
+                          padding: '1.25rem',
+                          background: `${active.color}08`,
+                          border: `1px solid ${active.color}25`,
+                          borderLeft: `3px solid ${active.color}`,
+                        }}>
+                          <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#d4d4d8', marginBottom: '0.625rem' }}>
+                            {active.label} API Key
+                            {active.value && <span style={{ marginLeft: '0.5rem', fontSize: '0.6875rem', color: '#22c55e', fontWeight: 700 }}>✓ {i18n.t.einstellungen.apiKeySaved}</span>}
+                          </label>
+                          <input
+                            type="password"
+                            placeholder={active.placeholder}
+                            value={active.value}
+                            onChange={e => active.onChange(e.target.value)}
+                            autoComplete="new-password"
+                            style={{
+                              width: '100%', maxWidth: 400, padding: '0.625rem 0.875rem',
+                              backgroundColor: 'rgba(255,255,255,0.05)',
+                              border: `1px solid ${active.value ? 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.12)'}`,
+                              borderRadius: 0, color: '#ffffff', fontSize: '0.875rem',
+                            }}
+                          />
+                          <p style={{ fontSize: '0.75rem', color: '#71717a', marginTop: '0.5rem', marginBottom: 0 }}>{active.hint}</p>
+                          {/* OpenRouter: default model picker */}
+                          {activeProviderTab === 'openrouter' && openrouterKey && (
+                            <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: `1px solid ${active.color}20` }}>
+                              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: '#d4d4d8', marginBottom: '0.5rem' }}>
+                                {i18n.t.einstellungen.standardModelLabel}
+                                {defaultModel && defaultModel !== 'openrouter/auto' && <span style={{ marginLeft: '0.5rem', fontSize: '0.6875rem', color: '#22c55e', fontWeight: 600 }}>{i18n.t.einstellungen.standardModelSet}</span>}
+                              </label>
+                              <select
+                                value={defaultModel}
+                                onChange={e => setDefaultModel(e.target.value)}
+                                disabled={loadingOrModels}
+                                style={{
+                                  maxWidth: 400, width: '100%', padding: '0.625rem 0.875rem',
+                                  backgroundColor: 'rgba(255,255,255,0.05)',
+                                  border: `1px solid ${defaultModel && defaultModel !== 'openrouter/auto' ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.1)'}`,
+                                  borderRadius: 0, color: '#ffffff', fontSize: '0.875rem',
+                                  cursor: loadingOrModels ? 'wait' : 'pointer',
+                                  appearance: 'none', WebkitAppearance: 'none',
+                                }}
+                              >
+                                <option value="openrouter/auto" style={{ backgroundColor: '#18181b' }}>
+                                  {loadingOrModels ? `⏳ ${i18n.t.einstellungen.loadingModels}` : i18n.t.einstellungen.autoRouter}
+                                </option>
+                                {orModels.map(m => (
+                                  <option key={m.id} value={m.id} style={{ backgroundColor: '#18181b' }}>{m.name}</option>
+                                ))}
+                              </select>
+                              <p style={{ fontSize: '0.75rem', color: '#71717a', marginTop: '0.375rem' }}>{i18n.t.einstellungen.standardModelHint}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Ollama: URL + optional API key + model picker */}
+                      {isOllama && (
+                        <div style={{
+                          padding: '1.25rem',
+                          background: 'rgba(34,197,94,0.06)',
+                          border: `1px solid ${ollamaStatus === 'online' ? 'rgba(34,197,94,0.4)' : ollamaStatus === 'offline' ? 'rgba(239,68,68,0.3)' : 'rgba(34,197,94,0.2)'}`,
+                          borderLeft: '3px solid #22c55e',
+                          display: 'flex', flexDirection: 'column', gap: '0.875rem',
+                        }}>
+                          {/* Status row */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <Cpu size={15} style={{ color: '#22c55e' }} />
+                            <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#d4d4d8' }}>Ollama</span>
+                            <span style={{ fontSize: 10, fontWeight: 800, padding: '1px 6px', background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.25)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{i18n.t.einstellungen.ollamaLocalBadge}</span>
+                            {ollamaStatus === 'online' && <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#22c55e', fontWeight: 600 }}><Wifi size={11} /> {i18n.t.einstellungen.ollamaOnline} · {ollamaModels.length} Modelle</span>}
+                            {ollamaStatus === 'offline' && <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#ef4444', fontWeight: 600 }}><WifiOff size={11} /> {i18n.t.einstellungen.ollamaOffline}</span>}
+                            {ollamaStatus === 'checking' && <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#64748b' }}><Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> {i18n.t.einstellungen.ollamaChecking}</span>}
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <input type="text" placeholder="http://127.0.0.1:11434" value={ollamaUrl}
+                              onChange={e => { setOllamaUrl(e.target.value); setOllamaStatus('idle'); setOllamaModels([]); }}
+                              style={{ flex: 1, maxWidth: 320, padding: '0.5rem 0.75rem', backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 0, color: '#fff', fontSize: '0.875rem' }}
+                            />
+                            <button onClick={async () => {
+                              const base = ollamaUrl.trim() || 'http://localhost:11434';
+                              setOllamaStatus('checking'); setOllamaModels([]);
+                              try {
+                                const r = await authFetch(`/api/ollama/models?baseUrl=${encodeURIComponent(base)}&apiKey=${encodeURIComponent(ollamaApiKey)}`);
+                                if (!r.ok) { setOllamaStatus('offline'); return; }
+                                const d = await r.json();
+                                setOllamaModels(d.models || []); setOllamaStatus('online');
+                                if (!ollamaDefaultModel && d.models?.length > 0) setOllamaDefaultModel(d.models[0].id);
+                              } catch { setOllamaStatus('offline'); }
+                            }} style={{ padding: '0.5rem 0.875rem', borderRadius: 0, fontSize: 12, fontWeight: 700, cursor: 'pointer', background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)', color: '#22c55e', display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+                              <RefreshCw size={12} /> {i18n.t.einstellungen.ollamaConnect}
+                            </button>
+                          </div>
+                          <div>
+                            <input type="password" placeholder={i18n.t.einstellungen.ollamaApiKeyPlaceholder} value={ollamaApiKey}
+                              onChange={e => { setOllamaApiKey(e.target.value); setOllamaStatus('idle'); }}
+                              style={{ width: '100%', maxWidth: 320, padding: '0.5rem 0.75rem', backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 0, color: '#fff', fontSize: '0.875rem' }}
+                            />
+                            <p style={{ fontSize: '0.675rem', color: '#64748b', marginTop: '0.25rem', marginBottom: 0 }}>{i18n.t.einstellungen.ollamaApiKeyLabel}</p>
+                          </div>
+                          <p style={{ fontSize: '0.75rem', color: '#52525b', margin: 0 }}>{i18n.t.einstellungen.ollamaPrivateHint}{' '}<span style={{ color: '#334155' }}>{i18n.t.einstellungen.ollamaInstallHint} <code style={{ fontSize: 11, color: '#94a3b8' }}>ollama pull llama3.2</code></span></p>
+                          {ollamaModels.length > 0 && (
+                            <div>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>{i18n.t.einstellungen.ollamaInstalledModels}</div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
+                                {ollamaModels.map(m => (
+                                  <button key={m.id} onClick={() => setOllamaDefaultModel(m.id)} style={{ padding: '3px 10px', borderRadius: 0, fontSize: 11, cursor: 'pointer', background: ollamaDefaultModel === m.id ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.04)', border: `1px solid ${ollamaDefaultModel === m.id ? 'rgba(34,197,94,0.5)' : 'rgba(255,255,255,0.08)'}`, color: ollamaDefaultModel === m.id ? '#22c55e' : '#64748b', fontWeight: ollamaDefaultModel === m.id ? 700 : 400 }}>
+                                    {m.name}{m.size ? ` · ${(m.size / 1e9).toFixed(1)}GB` : ''}
+                                  </button>
+                                ))}
+                              </div>
+                              {ollamaDefaultModel && <div style={{ fontSize: 11, color: '#475569' }}><span style={{ color: '#22c55e', fontWeight: 700 }}>{ollamaDefaultModel}</span> {i18n.t.einstellungen.ollamaDefaultSet}</div>}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </>
                   );
                 })()}
-
-                {/* ── Ollama Local / Private ── */}
-                <div style={{
-                  borderRadius: 0, padding: '1rem',
-                  background: 'linear-gradient(135deg, rgba(34,197,94,0.06) 0%, rgba(6,182,212,0.04) 100%)',
-                  border: `1px solid ${ollamaStatus === 'online' ? 'rgba(34,197,94,0.3)' : ollamaStatus === 'offline' ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.08)'}`,
-                }}>
-                  {/* Header */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    <Cpu size={16} style={{ color: '#22c55e' }} />
-                    <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#d4d4d8' }}>Ollama</span>
-                    <span style={{ fontSize: 10, fontWeight: 800, padding: '1px 7px', borderRadius: 0, background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.25)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                      {i18n.t.einstellungen.ollamaLocalBadge}
-                    </span>
-                    {/* Status badge */}
-                    {ollamaStatus === 'online' && (
-                      <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#22c55e', fontWeight: 600 }}>
-                        <Wifi size={12} /> {i18n.t.einstellungen.ollamaOnline} · {ollamaModels.length} {ollamaModels.length === 1 ? 'Modell' : 'Modelle'}
-                      </span>
-                    )}
-                    {ollamaStatus === 'offline' && (
-                      <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#ef4444', fontWeight: 600 }}>
-                        <WifiOff size={12} /> {i18n.t.einstellungen.ollamaOffline}
-                      </span>
-                    )}
-                    {ollamaStatus === 'checking' && (
-                      <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#64748b' }}>
-                        <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> {i18n.t.einstellungen.ollamaChecking}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* URL + Test Button */}
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                    <input
-                      type="text"
-                      placeholder="http://127.0.0.1:11434"
-                      value={ollamaUrl}
-                      onChange={e => { setOllamaUrl(e.target.value); setOllamaStatus('idle'); setOllamaModels([]); }}
-                      style={{
-                        flex: 1, maxWidth: 340,
-                        padding: '0.5rem 0.75rem',
-                        backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: 0, color: '#fff', fontSize: '0.875rem', outline: 'none',
-                      }}
-                    />
-                    <button
-                      onClick={async () => {
-                        const base = ollamaUrl.trim() || 'http://localhost:11434';
-                        setOllamaStatus('checking');
-                        setOllamaModels([]);
-                        try {
-                          const r = await authFetch(`/api/ollama/models?baseUrl=${encodeURIComponent(base)}`);
-                          if (!r.ok) { setOllamaStatus('offline'); return; }
-                          const data = await r.json();
-                          setOllamaModels(data.models || []);
-                          setOllamaStatus('online');
-                          if (!ollamaDefaultModel && data.models?.length > 0) {
-                            setOllamaDefaultModel(data.models[0].id);
-                          }
-                        } catch { setOllamaStatus('offline'); }
-                      }}
-                      style={{
-                        padding: '0.5rem 0.875rem', borderRadius: 0, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                        background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)', color: '#22c55e',
-                        display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
-                      }}
-                    >
-                      <RefreshCw size={12} /> {i18n.t.einstellungen.ollamaConnect}
-                    </button>
-                  </div>
-
-                  <p style={{ fontSize: '0.75rem', color: '#52525b', marginBottom: ollamaModels.length > 0 ? 10 : 0 }}>
-                    {i18n.t.einstellungen.ollamaPrivateHint}
-                    {' '}
-                    <span style={{ color: '#334155' }}>{i18n.t.einstellungen.ollamaInstallHint} <code style={{ fontSize: 11, color: '#94a3b8' }}>ollama pull llama3.2</code></span>
-                  </p>
-
-                  {/* Installed model list */}
-                  {ollamaModels.length > 0 && (
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
-                        {i18n.t.einstellungen.ollamaInstalledModels}
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
-                        {ollamaModels.map(m => (
-                          <button
-                            key={m.id}
-                            onClick={() => setOllamaDefaultModel(m.id)}
-                            style={{
-                              padding: '3px 10px', borderRadius: 0, fontSize: 11, cursor: 'pointer',
-                              background: ollamaDefaultModel === m.id ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.04)',
-                              border: `1px solid ${ollamaDefaultModel === m.id ? 'rgba(34,197,94,0.5)' : 'rgba(255,255,255,0.08)'}`,
-                              color: ollamaDefaultModel === m.id ? '#22c55e' : '#64748b',
-                              fontWeight: ollamaDefaultModel === m.id ? 700 : 400,
-                            }}
-                          >
-                            {m.name}
-                            {m.size ? ` · ${(m.size / 1e9).toFixed(1)}GB` : ''}
-                          </button>
-                        ))}
-                      </div>
-                      {ollamaDefaultModel && (
-                        <div style={{ fontSize: 11, color: '#475569' }}>
-                          <span style={{ color: '#22c55e', fontWeight: 700 }}>{ollamaDefaultModel}</span>
-                          {' '}{i18n.t.einstellungen.ollamaDefaultSet}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
 
                 {/* Custom Connections — dynamic list */}
                 <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1rem' }}>
@@ -1506,12 +1627,17 @@ export function Settings() {
                 ['poe_api_key', poeKey],
                 ['openrouter_default_model', defaultModel],
                 ['ollama_base_url', ollamaUrl],
+                ['ollama_api_key', ollamaApiKey],
                 ['ollama_default_model', ollamaDefaultModel],
                 ['custom_connections', JSON.stringify(customConnections)],
               ])} />
               </>}
             </div>
+            </>
+            }
 
+            {/* ── TAB: Budget & Control ── */}
+            {activeTab === 'budget' && <>
             {/* Budget & Kontrolle */}
             <div className="glass-card" style={{
               padding: '1.5rem',
@@ -1620,7 +1746,11 @@ export function Settings() {
               ])} />
               </>}
             </div>
+            </>
+            }
 
+            {/* ── TAB: System (WorkDir, DB, Export, Danger Zone) ── */}
+            {activeTab === 'system' && <>
             {/* Projekt-Arbeitsverzeichnis */}
             {aktivesUnternehmen && (
               <div className="glass-card" style={{
@@ -2076,6 +2206,10 @@ export function Settings() {
                 <span style={{ color: '#71717a' }}>OpenCognit v0.1.0</span>
                 <span style={{ color: '#71717a' }}>{i18n.t.einstellungen.madeWith}</span>
               </div>
+            </div>
+            </>
+            }
+
             </div>
           </div>
       </div>

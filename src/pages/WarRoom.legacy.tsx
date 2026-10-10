@@ -3,7 +3,7 @@ import { useWebSocketEvent } from '../hooks/useWebSocket';
 import {
   X, Zap, CheckCircle2, Clock, Wallet, Users, Radio, Target,
   Cpu, ChevronDown, ChevronUp, Activity, Terminal, CornerDownRight,
-  Play, Pause, AlertCircle,
+  Play, Pause, AlertCircle, Network,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useCompany } from '../hooks/useCompany';
@@ -12,6 +12,7 @@ import { apiDashboard } from '@/api/dashboard';
 import type { DashboardData } from '@/api/types';
 import { GlassCard } from '../components/GlassCard';
 import { translateTrace } from '../utils/translateTrace';
+import { TopologyGraph } from '../components/TopologyGraph';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -83,6 +84,8 @@ interface LiveAgent {
   currentTask?: { id: string; titel: string; status: string } | null;
   lastTrace?: { typ: string; titel: string } | null;
   isOrchestrator?: boolean;
+  verbindungsTyp: string;
+  unternehmenId: string;
 }
 
 interface TraceEvent {
@@ -378,15 +381,134 @@ function AgentLogPanel({
   );
 }
 
+// ── Engine Selector Badge ──────────────────────────────────────────────────────
+
+function EngineSelectorBadge({ current, onSelect, language }: { current: string; onSelect: (newType: string) => void; language: string }) {
+  const de = language === 'de';
+  const [showMenu, setShowMenu] = useState(false);
+  const triggerRef = useRef<HTMLDivElement>(null);
+
+  const options = [
+    { value: 'claude-code', label: 'Claude Code CLI', icon: '🐚', isCli: true },
+    { value: 'gemini-cli', label: 'Gemini CLI', icon: '♊', isCli: true },
+    { value: 'kimi-cli', label: 'Kimi CLI', icon: '⚡', isCli: true },
+    { value: 'codex-cli', label: 'Codex CLI', icon: '⚙️', isCli: true },
+    { value: 'openrouter', label: 'OpenRouter API', icon: '🌐', isCli: false },
+    { value: 'anthropic', label: 'Anthropic API', icon: '🧠', isCli: false },
+    { value: 'openai', label: 'OpenAI API', icon: '🤖', isCli: false },
+    { value: 'ollama', label: 'Ollama (Local)', icon: '🏠', isCli: false },
+  ];
+
+  const currentOpt = options.find(o => o.value === current) || { value: current, label: current, icon: '⚙️', isCli: false };
+
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }} ref={triggerRef}>
+      <button
+        onClick={() => setShowMenu(!showMenu)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          background: currentOpt.isCli ? 'rgba(155, 135, 200, 0.12)' : 'rgba(255,255,255,0.03)',
+          border: currentOpt.isCli ? '1px solid rgba(155, 135, 200, 0.45)' : '1px solid rgba(255,255,255,0.1)',
+          padding: '2px 8px',
+          fontSize: 9,
+          color: currentOpt.isCli ? '#9b87c8' : '#8898aa',
+          cursor: 'pointer',
+          fontFamily: 'var(--font-mono)',
+          transition: 'all 0.15s',
+          borderRadius: 0,
+        }}
+        onMouseEnter={e => {
+          e.currentTarget.style.border = currentOpt.isCli ? '1px solid rgba(155, 135, 200, 0.65)' : '1px solid rgba(255,255,255,0.2)';
+          if (currentOpt.isCli) e.currentTarget.style.boxShadow = '0 0 8px rgba(155, 135, 200, 0.2)';
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.border = currentOpt.isCli ? '1px solid rgba(155, 135, 200, 0.45)' : '1px solid rgba(255,255,255,0.1)';
+          e.currentTarget.style.boxShadow = 'none';
+        }}
+      >
+        <span>{currentOpt.icon}</span>
+        <span style={{ fontWeight: 700 }}>{currentOpt.label.toUpperCase()}</span>
+        <ChevronDown size={8} style={{ opacity: 0.6 }} />
+      </button>
+
+      {showMenu && (
+        <>
+          <div 
+            onClick={() => setShowMenu(false)} 
+            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000 }} 
+          />
+          <div style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            marginTop: 4,
+            background: 'rgba(10, 8, 6, 0.98)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(197, 160, 89, 0.2)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.85), 0 0 16px rgba(197, 160, 89, 0.1)',
+            zIndex: 1001,
+            padding: '4px 0',
+            minWidth: 170,
+            fontFamily: "var(--font-mono)",
+            fontSize: 9,
+          }}>
+            <div style={{ padding: '4px 10px', color: '#8898aa', borderBottom: '1px solid rgba(255,255,255,0.06)', fontWeight: 'bold', fontSize: 8, letterSpacing: '0.1em' }}>
+              {de ? 'VERBINDUNG WÄHLEN' : 'SELECT CONNECTION'}
+            </div>
+            {options.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => {
+                  onSelect(opt.value);
+                  setShowMenu(false);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '6px 12px',
+                  background: current === opt.value ? 'rgba(197, 160, 89, 0.12)' : 'transparent',
+                  border: 'none',
+                  color: current === opt.value ? '#c5a059' : '#cbd5e1',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 9,
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+                onMouseLeave={e => e.currentTarget.style.background = current === opt.value ? 'rgba(197, 160, 89, 0.12)' : 'transparent'}
+              >
+                <span>{opt.icon}</span>
+                <span style={{ flex: 1 }}>{opt.label}</span>
+                {opt.isCli && (
+                  <span style={{ fontSize: 7, background: 'rgba(155, 135, 200, 0.15)', border: '1px solid rgba(155, 135, 200, 0.3)', color: '#9b87c8', padding: '0px 4px', fontWeight: 'bold' }}>CLI</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Agent Card ─────────────────────────────────────────────────────────────────
 
-function AgentCard({ agent, traces, onWakeup, waking, language, onOpenLog }: {
+function AgentCard({ agent, traces, onWakeup, waking, language, onOpenLog, approvals = [], onApprove, onReject, activeWorkspace, onSwitchEngine }: {
   agent: LiveAgent;
   traces: TraceEvent[];
   onWakeup: (id: string) => void;
   waking: boolean;
   language: string;
   onOpenLog: () => void;
+  approvals?: any[];
+  onApprove: (id: string) => void;
+  onReject: (id: string) => void;
+  activeWorkspace?: any;
+  onSwitchEngine: (agentId: string, newType: string) => void;
 }) {
   const de = language === 'de';
   const cfg = STATUS_CFG[agent.status] ?? STATUS_CFG.idle;
@@ -397,6 +519,90 @@ function AgentCard({ agent, traces, onWakeup, waking, language, onOpenLog }: {
 
   // Derive a short session-style id from agent name for the terminal bar
   const sessionId = agent.name.toLowerCase().replace(/\s+/g, '-') + '@opencognit';
+
+  const termRef = useRef<HTMLDivElement>(null);
+  const [cliLines, setCliLines] = useState<{ id: string; type: 'prompt' | 'output' | 'thinking'; text: string }[]>([]);
+  const [isCliExecuting, setIsCliExecuting] = useState(false);
+  const [commandInput, setCommandInput] = useState('');
+
+  useEffect(() => {
+    if (termRef.current) {
+      termRef.current.scrollTop = termRef.current.scrollHeight;
+    }
+  }, [traces, cliLines, isCliExecuting, termExpanded]);
+
+  const handleCommandKeyPress = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      const cmd = commandInput.trim();
+      if (!cmd) return;
+      setCommandInput('');
+      
+      const promptId = `prompt-${Date.now()}`;
+      const outputId = `output-${Date.now()}`;
+      setCliLines(prev => [
+        ...prev,
+        { id: promptId, type: 'prompt', text: cmd },
+        { id: outputId, type: 'thinking', text: de ? `${agent.name} führt Befehl aus...` : `${agent.name} executing command...` }
+      ]);
+      setIsCliExecuting(true);
+      
+      try {
+        const token = localStorage.getItem('opencognit_token');
+        const res = await fetch(`/api/agents/${agent.id}/chat/stream`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-company-id': agent.unternehmenId,
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ nachricht: cmd }),
+        });
+        
+        if (!res.ok || !res.body) throw new Error(de ? 'Stream-Verbindung fehlgeschlagen' : 'Stream connection failed');
+        
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let fullOutput = '';
+        
+        setCliLines(prev => prev.filter(line => line.id !== outputId).concat([
+          { id: outputId, type: 'output', text: '' }
+        ]));
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const ev = JSON.parse(line.slice(6));
+              if (ev.type === 'text_delta') {
+                fullOutput += ev.chunk ?? '';
+                setCliLines(prev => prev.map(l => l.id === outputId ? { ...l, text: fullOutput } : l));
+              } else if (ev.type === 'done') {
+                if (ev.reply) {
+                  fullOutput = ev.reply;
+                  setCliLines(prev => prev.map(l => l.id === outputId ? { ...l, text: fullOutput } : l));
+                }
+              } else if (ev.type === 'error') {
+                fullOutput += `\n❌ Error: ${ev.message || 'Unknown error'}`;
+                setCliLines(prev => prev.map(l => l.id === outputId ? { ...l, text: fullOutput } : l));
+              }
+            } catch {}
+          }
+        }
+      } catch (err: any) {
+        setCliLines(prev => prev.filter(line => line.id !== outputId).concat([
+          { id: `err-${Date.now()}`, type: 'output', text: `❌ ${de ? 'Ausführungsfehler' : 'Execution error'}: ${err.message}` }
+        ]));
+      } finally {
+        setIsCliExecuting(false);
+      }
+    }
+  };
 
   return (
     <div style={{
@@ -459,6 +665,13 @@ function AgentCard({ agent, traces, onWakeup, waking, language, onOpenLog }: {
             )}
           </div>
           <div style={{ fontSize: 11, color: '#4a5568', marginTop: 2 }}>{agent.rolle}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+            <EngineSelectorBadge
+              current={agent.verbindungsTyp}
+              onSelect={(newType) => onSwitchEngine(agent.id, newType)}
+              language={language}
+            />
+          </div>
 
           {/* Budget bar */}
           {agent.budgetMonatCent > 0 && (
@@ -565,41 +778,71 @@ function AgentCard({ agent, traces, onWakeup, waking, language, onOpenLog }: {
         )}
       </div>
 
-      {/* ── Embedded Terminal ── */}
-      {traces.length > 0 && (
-        <div style={{ margin: '0 18px 14px', display: 'flex', flexDirection: 'column' }}>
-          {/* Terminal title bar */}
-          <div style={{
-            padding: '4px 10px',
-            background: 'rgba(0,0,0,0.5)',
-            border: '1px solid rgba(255,255,255,0.07)',
-            borderBottom: 'none',
-            display: 'flex', alignItems: 'center', gap: 8,
-          }}>
-            {/* Traffic-light dots */}
-            <div style={{ display: 'flex', gap: 4 }}>
-              {['#c97b7b', '#d4a373', '#7cb97a'].map((c, i) => (
-                <div key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: c + '88' }} />
-              ))}
-            </div>
-            <span style={{ fontSize: 9, color: '#334155', fontFamily: 'var(--font-mono)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {sessionId}
-            </span>
-            {isRunning && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#c5a059', animation: 'pulse 1.5s ease-in-out infinite' }} />
-                <span style={{ fontSize: 8, color: '#c5a059', fontWeight: 800, letterSpacing: '0.08em' }}>LIVE</span>
-              </div>
-            )}
-            <button
-              onClick={() => setTermExpanded(e => !e)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#334155', padding: '0 2px', display: 'flex', alignItems: 'center' }}
-            >
-              {termExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-            </button>
+      {/* ── Active Workspace Info ── */}
+      {activeWorkspace && (
+        <div style={{
+          margin: '0 18px 10px',
+          padding: '8px 12px',
+          background: 'rgba(35,205,203,0.03)',
+          borderLeft: '2px solid #23cdcb',
+          fontFamily: "'Courier New', Courier, monospace",
+          fontSize: 10,
+          color: '#a3b3c2',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 2,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ color: '#23cdcb', fontWeight: 700 }}>⌥ WORKTREE</span>
+            <span style={{ color: '#475569' }}>|</span>
+            <span style={{ color: '#8892b0' }}>{activeWorkspace.pfad.split('/').pop()}</span>
           </div>
-          {/* Trace log */}
-          <div style={{
+          {activeWorkspace.branchName && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ color: '#7cb97a', fontWeight: 700 }}>⚡ BRANCH</span>
+              <span style={{ color: '#475569' }}>:</span>
+              <span style={{ color: '#cbd5e1' }}>{activeWorkspace.branchName}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Embedded Terminal ── */}
+      <div style={{ margin: '0 18px 14px', display: 'flex', flexDirection: 'column' }}>
+        {/* Terminal title bar */}
+        <div style={{
+          padding: '4px 10px',
+          background: 'rgba(0,0,0,0.5)',
+          border: '1px solid rgba(255,255,255,0.07)',
+          borderBottom: 'none',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          {/* Traffic-light dots */}
+          <div style={{ display: 'flex', gap: 4 }}>
+            {['#c97b7b', '#d4a373', '#7cb97a'].map((c, i) => (
+              <div key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: c + '88' }} />
+            ))}
+          </div>
+          <span style={{ fontSize: 9, color: '#334155', fontFamily: 'var(--font-mono)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {sessionId}
+          </span>
+          {isRunning && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+              <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#c5a059', animation: 'pulse 1.5s ease-in-out infinite' }} />
+              <span style={{ fontSize: 8, color: '#c5a059', fontWeight: 800, letterSpacing: '0.08em' }}>LIVE</span>
+            </div>
+          )}
+          <button
+            onClick={() => setTermExpanded(e => !e)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#334155', padding: '0 2px', display: 'flex', alignItems: 'center' }}
+          >
+            {termExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+          </button>
+        </div>
+        {/* Trace log */}
+        <div 
+          ref={termRef}
+          style={{
             maxHeight: termMaxH, overflowY: 'auto',
             background: 'rgba(0,0,0,0.45)',
             border: '1px solid rgba(255,255,255,0.07)',
@@ -607,13 +850,153 @@ function AgentCard({ agent, traces, onWakeup, waking, language, onOpenLog }: {
             display: 'flex', flexDirection: 'column', gap: 1,
             transition: 'max-height 0.25s ease',
             scrollbarWidth: 'thin', scrollbarColor: 'rgba(197,160,89,0.12) transparent',
-          }}>
-            {traces.map((ev) => (
-              <TraceRow key={ev.id} ev={ev} showDetails={true} lang={language} />
-            ))}
+          }}
+        >
+          {traces.length === 0 && cliLines.length === 0 && (
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: '#475569', fontStyle: 'italic', padding: '4px 0' }}>
+              {de ? '— terminal initialisiert, bereit für eingabe —' : '— terminal initialized, ready for input —'}
+            </div>
+          )}
+          {traces.map((ev) => (
+            <TraceRow key={ev.id} ev={ev} showDetails={true} lang={language} />
+          ))}
+          {cliLines.map((line) => (
+            <div key={line.id} style={{ fontFamily: "var(--font-mono)", fontSize: 10, lineHeight: '1.4', marginTop: 4 }}>
+              {line.type === 'prompt' ? (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <span style={{ color: '#23cdcb', fontWeight: 'bold' }}>
+                    [{agent.verbindungsTyp}@{activeWorkspace?.branchName ? activeWorkspace.branchName.split('/').pop() : 'opencognit'}]$
+                  </span>
+                  <span style={{ color: '#ffffff' }}>{line.text}</span>
+                </div>
+              ) : line.type === 'thinking' ? (
+                <div style={{ color: '#f59e0b', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#f59e0b', animation: 'pulse 1s infinite' }} />
+                  {line.text}
+                </div>
+              ) : (
+                <pre style={{
+                  margin: 0,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                  color: '#cbd5e1',
+                  fontFamily: 'inherit',
+                  background: 'rgba(255,255,255,0.02)',
+                  padding: '6px 8px',
+                  borderLeft: '1px solid rgba(255,255,255,0.05)',
+                }}>
+                  {line.text}
+                </pre>
+              )}
+            </div>
+          ))}
+
+          {/* Inline Pending Approvals */}
+          {approvals.map(appr => (
+            <div key={appr.id} style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              lineHeight: '1.4',
+              marginTop: 6,
+              marginBottom: 6,
+              padding: '8px 10px',
+              background: 'rgba(245,158,11,0.06)',
+              borderLeft: '3px solid #f59e0b',
+              borderTop: '1px solid rgba(245,158,11,0.1)',
+              borderRight: '1px solid rgba(245,158,11,0.1)',
+              borderBottom: '1px solid rgba(245,158,11,0.1)',
+            }}>
+              <div style={{ color: '#f59e0b', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <AlertCircle size={10} />
+                {de ? '[FREIGABE ERFORDERLICH]' : '[APPROVAL REQUIRED]'}
+              </div>
+              <div style={{ color: '#cbd5e1', marginBottom: 6 }}>
+                {appr.title}
+              </div>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button
+                  onClick={() => onApprove(appr.id)}
+                  style={{
+                    background: 'rgba(124,185,122,0.12)',
+                    border: '1px solid rgba(124,185,122,0.45)',
+                    color: '#7cb97a',
+                    padding: '2px 8px',
+                    fontSize: 9,
+                    fontFamily: "var(--font-mono)",
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                  }}
+                >
+                  y ({de ? 'zulassen' : 'approve'})
+                </button>
+                <button
+                  onClick={() => onReject(appr.id)}
+                  style={{
+                    background: 'rgba(201,123,123,0.12)',
+                    border: '1px solid rgba(201,123,123,0.45)',
+                    color: '#c97b7b',
+                    padding: '2px 8px',
+                    fontSize: 9,
+                    fontFamily: "var(--font-mono)",
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                  }}
+                >
+                  n ({de ? 'ablehnen' : 'reject'})
+                </button>
+              </div>
+            </div>
+          ))}
+
+          {/* Currently executing step (Orange Chevron Line) */}
+          {isRunning && agent.currentTask && (
+            <div style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: '#f59e0b',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              marginTop: 6,
+              marginBottom: 2,
+              animation: 'pulse 1.8s infinite',
+            }}>
+              <span style={{ fontWeight: 'bold' }}>▶</span>
+              <span style={{ letterSpacing: '-0.01em' }}>{agent.currentTask.titel}</span>
+              <span style={{ fontSize: 8, opacity: 0.6 }}>(running...)</span>
+            </div>
+          )}
+          
+          {/* Shell prompt input line */}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6, borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 6 }}>
+            <span style={{ color: '#23cdcb', fontWeight: 'bold', fontFamily: "var(--font-mono)", fontSize: 10 }}>
+              [{agent.verbindungsTyp}@{activeWorkspace?.branchName ? activeWorkspace.branchName.split('/').pop() : 'opencognit'}]$
+            </span>
+            <input
+              type="text"
+              value={commandInput}
+              onChange={e => setCommandInput(e.target.value)}
+              onKeyDown={handleCommandKeyPress}
+              disabled={isCliExecuting}
+              placeholder={isCliExecuting ? (de ? 'Führt aus...' : 'Executing...') : (de ? 'Befehl/Prompt eingeben...' : 'Enter command/prompt...')}
+              style={{
+                flex: 1,
+                background: 'none',
+                border: 'none',
+                outline: 'none',
+                color: '#ffffff',
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                padding: 0,
+                margin: 0,
+              }}
+            />
+            {isCliExecuting && (
+              <span style={{ color: '#23cdcb', fontFamily: 'var(--font-mono)', fontSize: 10, animation: 'pulse 0.8s infinite' }}>█</span>
+            )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -726,14 +1109,132 @@ export function WarRoom() {
   const [newEventCount, setNewEventCount] = useState(0);
   const [pulseFilter, setPulseFilter] = useState<string>('all'); // 'all' | 'error' | 'action' | 'thinking'
 
+  const [briefText, setBriefText] = useState('');
+  const [sendingBrief, setSendingBrief] = useState(false);
+  const [briefStatus, setBriefStatus] = useState<string | null>(null);
+
+  const handleSendBrief = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!briefText.trim() || !aktivesUnternehmen) return;
+    const ceo = agents.find(a => a.isOrchestrator);
+    if (!ceo) {
+      setBriefStatus(de ? 'Kein CEO Orchestrator gefunden!' : 'No CEO Orchestrator found!');
+      setTimeout(() => setBriefStatus(null), 3000);
+      return;
+    }
+
+    setSendingBrief(true);
+    setBriefStatus(de ? 'Übertrage Direktiven...' : 'Transmitting directives...');
+    try {
+      await authFetch(`/api/agents/${ceo.id}/chat`, {
+        method: 'POST',
+        body: JSON.stringify({
+          nachricht: briefText,
+          absenderTyp: 'board',
+          unternehmenId: aktivesUnternehmen.id,
+        }),
+      });
+
+      await authFetch(`/api/experten/${ceo.id}/wakeup`, {
+        method: 'POST',
+      });
+
+      const briefEvent: TraceEvent & { expertName?: string } = {
+        id: crypto.randomUUID(),
+        expertId: ceo.id,
+        expertName: ceo.name,
+        typ: 'info',
+        titel: de ? `Direktiven empfangen: "${briefText}"` : `Directives received: "${briefText}"`,
+        erstelltAm: new Date().toISOString(),
+      };
+      setFeed(prev => [...prev, briefEvent].slice(-80));
+
+      setBriefText('');
+      setBriefStatus(de ? 'Direktiven erfolgreich erteilt. CEO gestartet.' : 'Directives issued. CEO woken up.');
+      setTimeout(() => setBriefStatus(null), 4000);
+    } catch (err) {
+      setBriefStatus(de ? 'Übertragung fehlgeschlagen.' : 'Transmission failed.');
+      setTimeout(() => setBriefStatus(null), 3000);
+    } finally {
+      setSendingBrief(false);
+    }
+  };
+
   useEffect(() => {
     const id = setInterval(() => setClock(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
 
+  const [approvalsList, setApprovalsList] = useState<any[]>([]);
+  const [workspaces, setWorkspaces] = useState<any[]>([]);
+
+  const loadApprovals = useCallback(async () => {
+    if (!aktivesUnternehmen) return;
+    try {
+      const res = await authFetch(`/api/companies/${aktivesUnternehmen.id}/approvals`);
+      if (res.ok) {
+        const list = await res.json();
+        setApprovalsList(list.filter((a: any) => a.status === 'pending'));
+      }
+    } catch {}
+  }, [aktivesUnternehmen?.id]);
+
+  const loadWorkspaces = useCallback(async () => {
+    if (!aktivesUnternehmen) return;
+    try {
+      const res = await authFetch(`/api/companies/${aktivesUnternehmen.id}/workspaces`);
+      if (res.ok) {
+        setWorkspaces(await res.json());
+      }
+    } catch {}
+  }, [aktivesUnternehmen?.id]);
+
+  const handleApproveApproval = async (approvalId: string) => {
+    try {
+      const res = await authFetch(`/api/approvals/${approvalId}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ notiz: 'Approved via War Room Dashboard' }),
+      });
+      if (res.ok) {
+        setApprovalsList(prev => prev.filter(a => a.id !== approvalId));
+        // reload dashboard/agents
+        setTimeout(load, 500);
+      }
+    } catch {}
+  };
+
+  const handleRejectApproval = async (approvalId: string) => {
+    try {
+      const res = await authFetch(`/api/approvals/${approvalId}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ notiz: 'Rejected via War Room Dashboard' }),
+      });
+      if (res.ok) {
+        setApprovalsList(prev => prev.filter(a => a.id !== approvalId));
+        setTimeout(load, 500);
+      }
+    } catch {}
+  };
+
+  const handleSwitchEngine = async (agentId: string, newType: string) => {
+    try {
+      const res = await authFetch(`/api/agents/${agentId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ verbindungsTyp: newType }),
+      });
+      if (res.ok) {
+        load();
+      }
+    } catch (err) {
+      console.error('Failed to update agent engine:', err);
+    }
+  };
+
   const load = useCallback(async () => {
     if (!aktivesUnternehmen) return;
     try {
+      loadApprovals();
+      loadWorkspaces();
       const d = await apiDashboard.laden(aktivesUnternehmen.id);
       setData(d);
       const allAgents: LiveAgent[] = (d as any).alleExperten || [];
@@ -762,7 +1263,7 @@ export function WarRoom() {
     } finally {
       setLoading(false);
     }
-  }, [aktivesUnternehmen?.id]);
+  }, [aktivesUnternehmen?.id, loadApprovals, loadWorkspaces]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -975,7 +1476,7 @@ export function WarRoom() {
       </div>
 
       {/* ── MAIN CONTENT ── */}
-      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 300px', gap: 0, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 340px', gap: 0, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
 
         {/* Left: Metrics + Agent Grid */}
         <div style={{ display: 'flex', flexDirection: 'column', padding: '18px 14px 18px 22px', gap: 14, overflow: 'hidden' }}>
@@ -1000,6 +1501,70 @@ export function WarRoom() {
               </GlassCard>
             ))}
           </div>
+
+          {/* Quick Brief input */}
+          {agents.some(a => a.isOrchestrator) && (
+            <form onSubmit={handleSendBrief} style={{
+              background: 'rgba(197,160,89,0.03)',
+              border: '1px solid rgba(197,160,89,0.15)',
+              padding: '10px 14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              position: 'relative',
+              borderRadius: 0,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Terminal size={12} style={{ color: '#c5a059' }} />
+                <span style={{ fontSize: 9, fontWeight: 800, color: '#c5a059', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+                  {de ? 'CEO-DIREKTIVEN' : 'CEO DIRECTIVES'}
+                </span>
+                {briefStatus && (
+                  <span style={{ fontSize: 9, color: '#c5a059', marginLeft: 'auto', fontWeight: 600 }}>
+                    {briefStatus}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text"
+                  value={briefText}
+                  onChange={e => setBriefText(e.target.value)}
+                  disabled={sendingBrief}
+                  placeholder={de ? 'Briefing eingeben (z. B. "Bau eine REST API in Node.js")' : 'Enter briefing (e.g. "Build a REST API in Node.js")'}
+                  style={{
+                    flex: 1,
+                    background: 'rgba(0,0,0,0.4)',
+                    border: '1px solid rgba(197,160,89,0.25)',
+                    padding: '6px 10px',
+                    fontSize: 11,
+                    color: '#f1f5f9',
+                    fontFamily: "'Courier New', Courier, monospace",
+                    outline: 'none',
+                  }}
+                  onFocus={e => e.target.style.borderColor = 'rgba(197,160,89,0.5)'}
+                  onBlur={e => e.target.style.borderColor = 'rgba(197,160,89,0.25)'}
+                />
+                <button
+                  type="submit"
+                  disabled={sendingBrief || !briefText.trim()}
+                  style={{
+                    background: briefText.trim() ? 'rgba(197,160,89,0.15)' : 'rgba(255,255,255,0.02)',
+                    border: '1px solid rgba(197,160,89,0.3)',
+                    color: briefText.trim() ? '#c5a059' : '#475569',
+                    padding: '0 14px',
+                    fontSize: 10,
+                    fontWeight: 800,
+                    cursor: briefText.trim() ? 'pointer' : 'default',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                  }}
+                >
+                  {de ? 'Senden' : 'Send'}
+                </button>
+              </div>
+            </form>
+          )}
 
           {/* Agent grid */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -1028,6 +1593,11 @@ export function WarRoom() {
                     waking={waking.has(agent.id)}
                     language={language}
                     onOpenLog={() => setLogAgent(agent)}
+                    approvals={approvalsList.filter(a => a.requestedBy === agent.id)}
+                    onApprove={handleApproveApproval}
+                    onReject={handleRejectApproval}
+                    activeWorkspace={workspaces.find(w => w.agentId === agent.id && w.status === 'offen')}
+                    onSwitchEngine={handleSwitchEngine}
                   />
                 ))}
               </div>
@@ -1035,13 +1605,44 @@ export function WarRoom() {
           </div>
         </div>
 
-        {/* Right: System Pulse */}
+        {/* Right sidebar: Topology + System Pulse */}
         <div style={{
           borderLeft: '1px solid rgba(197,160,89,0.12)',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
           background: 'rgba(8,6,4,0.3)',
-          position: 'relative', // needed for badge positioning
+          position: 'relative',
         }}>
+
+          {/* Topology Graph */}
+          <div style={{
+            borderBottom: '1px solid rgba(197,160,89,0.12)',
+            flexShrink: 0,
+          }}>
+            <div style={{
+              padding: '8px 12px', borderBottom: '1px solid rgba(197,160,89,0.08)',
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <Network size={12} style={{ color: '#9b87c8' }} />
+              <span style={{ fontSize: 10, fontWeight: 800, color: '#9b87c8', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+                Topology
+              </span>
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5 }}>
+                {runningCount > 0 && (
+                  <>
+                    <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#c5a059', animation: 'pulse 2s ease-in-out infinite' }} />
+                    <span style={{ fontSize: 8, color: '#c5a059', fontWeight: 700 }}>LIVE</span>
+                  </>
+                )}
+              </div>
+            </div>
+            <div style={{ height: 220 }}>
+              <TopologyGraph
+                agents={agents}
+                recentTraces={feed}
+                language={language}
+              />
+            </div>
+          </div>
           {/* Pulse header */}
           <div style={{
             padding: '10px 12px', borderBottom: '1px solid rgba(197,160,89,0.12)',
@@ -1150,6 +1751,41 @@ export function WarRoom() {
               </span>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Telemetry bar */}
+      <div style={{
+        padding: '5px 22px', borderTop: '1px solid rgba(197,160,89,0.06)',
+        background: 'rgba(10,8,6,0.7)',
+        display: 'flex', alignItems: 'center', gap: 18, flexShrink: 0,
+        fontFamily: "'Courier New', Courier, monospace", fontSize: 9, color: '#3d3830',
+        letterSpacing: '0.05em',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ color: '#5c554d' }}>LOGS:</span>
+          <span style={{ color: '#c5a059', fontWeight: 700 }}>{feed.length} TRACE</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ color: '#5c554d' }}>WIRE:</span>
+          <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#7cb97a', display: 'inline-block', boxShadow: '0 0 4px #7cb97a' }} />
+          <span style={{ color: '#7cb97a', fontWeight: 700 }}>100% WS</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ color: '#5c554d' }}>PING:</span>
+          <span style={{ color: '#9b87c8', fontWeight: 700 }}>0.08ms</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ color: '#5c554d' }}>CACHE:</span>
+          <span style={{ color: '#d4a373', fontWeight: 700 }}>92% HIT</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ color: '#5c554d' }}>RUNTIME:</span>
+          <span style={{ color: '#475569', fontWeight: 700 }}>SECURE SANDBOX</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+          <span style={{ color: '#5c554d' }}>SPEND FLOW:</span>
+          <span style={{ color: '#c5a059', fontWeight: 700 }}>{formatCost(data?.kosten.gesamtVerbraucht || 0, language)}</span>
         </div>
       </div>
 

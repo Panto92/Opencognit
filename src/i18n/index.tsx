@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, ReactNode, useEffect } from 'react';
+import { createContext, useContext, useState, useCallback, ReactNode, useEffect, useRef } from 'react';
 import { de } from './de';
 import { en } from './en';
 
@@ -29,9 +29,22 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     return 'en';
   });
 
+  const isFirstRender = useRef(true);
+
   useEffect(() => {
     localStorage.setItem('opencognit_language', language);
     document.documentElement.lang = language;
+
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+
+    const path = window.location.pathname;
+    if (path.includes('/auth/') || path.includes('/login') || path.includes('/signup')) {
+      return;
+    }
+
     // Persist to backend so agents respond in the right language
     const token = localStorage.getItem('opencognit_token');
     fetch('/api/einstellungen/ui_language', {

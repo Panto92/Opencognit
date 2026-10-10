@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { Building2, Zap, CheckCircle2, Loader2, ChevronRight, ChevronLeft, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Building2, Zap, CheckCircle2, Loader2, ChevronRight, ChevronLeft, AlertCircle, Server, Cloud, Wrench, Sparkles, ArrowRight } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { authFetch } from '../utils/api';
+import { useNavigate } from 'react-router-dom';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type ConnectType = 'claude-code' | 'kimi-cli' | 'openrouter' | 'anthropic';
+type ConnectType = 'claude-code' | 'gemini-cli' | 'codex-cli' | 'kimi-cli' | 'openrouter' | 'anthropic' | 'openai' | 'ollama';
 
 interface CliStatus {
   installed: boolean;
@@ -13,6 +14,12 @@ interface CliStatus {
   version?: string;
   loading?: boolean;
 }
+
+interface OllamaModel {
+  name: string;
+}
+
+type KeyValidationState = 'idle' | 'checking' | 'valid' | 'invalid';
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
@@ -23,11 +30,11 @@ const inputStyle: React.CSSProperties = {
 };
 
 const focusHandlers = {
-  onFocus: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  onFocus: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     e.target.style.borderColor = 'rgba(197,160,89,0.5)';
     e.target.style.boxShadow = '0 0 0 3px rgba(197,160,89,0.06)';
   },
-  onBlur: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  onBlur: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     e.target.style.borderColor = 'rgba(255,255,255,0.08)';
     e.target.style.boxShadow = 'none';
   },
@@ -35,8 +42,8 @@ const focusHandlers = {
 
 // ─── Step bar ────────────────────────────────────────────────────────────────
 
-function StepBar({ current, labels }: { current: number; labels: [string, string] }) {
-  const icons = [Building2, Zap];
+function StepBar({ current, labels }: { current: number; labels: [string, string, string] }) {
+  const icons = [Building2, Zap, Sparkles];
   return (
     <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2rem' }}>
       {labels.map((label, i) => {
@@ -69,6 +76,19 @@ function StepBar({ current, labels }: { current: number; labels: [string, string
           </React.Fragment>
         );
       })}
+    </div>
+  );
+}
+
+// ─── Section Header ──────────────────────────────────────────────────────────
+
+function SectionHeader({ icon: Icon, label }: { icon: React.ElementType; label: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '1rem 0 0.5rem' }}>
+      <Icon size={12} style={{ color: '#52525b' }} />
+      <span style={{ fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#52525b' }}>
+        {label}
+      </span>
     </div>
   );
 }
@@ -121,11 +141,62 @@ function ConnectOption({ icon, label, description, badge, badgeColor, statusText
   );
 }
 
+// ─── Success Screen ──────────────────────────────────────────────────────────
+
+function SuccessScreen({ steps, onDone }: { steps: string[]; onDone: () => void }) {
+  const [visibleCount, setVisibleCount] = useState(0);
+
+  useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    steps.forEach((_, i) => {
+      timers.push(setTimeout(() => setVisibleCount(i + 1), 400 + i * 700));
+    });
+    timers.push(setTimeout(() => onDone(), 400 + steps.length * 700 + 600));
+    return () => timers.forEach(clearTimeout);
+  }, [steps, onDone]);
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 100,
+      background: 'radial-gradient(ellipse 80% 50% at 50% -5%, rgba(197,160,89,0.07) 0%, transparent 65%), #09090b',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '2rem',
+    }}>
+      <div style={{ width: 64, height: 64, background: 'rgba(197,160,89,0.1)', border: '1px solid rgba(197,160,89,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Sparkles size={28} style={{ color: '#c5a059' }} />
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%', maxWidth: 320 }}>
+        {steps.map((s, i) => (
+          <div key={i} style={{
+            display: 'flex', alignItems: 'center', gap: '0.75rem',
+            opacity: i < visibleCount ? 1 : 0.15,
+            transform: i < visibleCount ? 'translateX(0)' : 'translateX(-8px)',
+            transition: 'all 0.4s ease',
+          }}>
+            <div style={{
+              width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              {i < visibleCount - 1 ? (
+                <CheckCircle2 size={14} style={{ color: '#22c55e' }} />
+              ) : i === visibleCount - 1 ? (
+                <Loader2 size={14} style={{ color: '#c5a059', animation: 'spin 1s linear infinite' }} />
+              ) : (
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgba(255,255,255,0.1)' }} />
+              )}
+            </div>
+            <span style={{ fontSize: '0.875rem', color: i < visibleCount ? '#d4d4d8' : '#3f3f46', fontWeight: 500 }}>{s}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Wizard ─────────────────────────────────────────────────────────────
 
 export function OnboardingWizard() {
   const { t, language } = useI18n();
   const o = t.onboarding;
+  const navigate = useNavigate();
 
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -138,10 +209,30 @@ export function OnboardingWizard() {
   // Step 1 state
   const [connectType, setConnectType] = useState<ConnectType | null>(null);
   const [apiKey, setApiKey] = useState('');
+  const [advancedMode, setAdvancedMode] = useState(false);
+
+  // CLI detection state
   const [cliStatus, setCliStatus] = useState<Record<string, CliStatus>>({
     'claude-code': { installed: false, loading: true },
+    'gemini-cli': { installed: false, loading: true },
+    'codex-cli': { installed: false, loading: true },
     'kimi-cli': { installed: false, loading: true },
   });
+
+  // Ollama state
+  const [ollamaDetected, setOllamaDetected] = useState<boolean | null>(null);
+  const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([]);
+  const [selectedOllamaModel, setSelectedOllamaModel] = useState('');
+
+  // Validation state
+  const [keyValidation, setKeyValidation] = useState<KeyValidationState>('idle');
+  const validationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Success screen
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [successSteps, setSuccessSteps] = useState<string[]>([]);
+
+  const isGerman = language === 'de';
 
   // Detect installed CLIs on mount
   useEffect(() => {
@@ -154,26 +245,71 @@ export function OnboardingWizard() {
         }
         setCliStatus({
           'claude-code': { ...(map['claude-code'] ?? { installed: false }), loading: false },
+          'gemini-cli': { ...(map['gemini-cli'] ?? { installed: false }), loading: false },
+          'codex-cli': { ...(map['codex-cli'] ?? { installed: false }), loading: false },
           'kimi-cli': { ...(map['kimi-cli'] ?? { installed: false }), loading: false },
         });
-        // Auto-select best option
-        if (map['claude-code']?.authenticated) setConnectType('claude-code');
-        else if (map['kimi-cli']?.authenticated) setConnectType('kimi-cli');
-        else if (map['claude-code']?.installed) setConnectType('claude-code');
-        else if (map['kimi-cli']?.installed) setConnectType('kimi-cli');
-        else setConnectType('openrouter');
       })
       .catch(() => {
         setCliStatus({
           'claude-code': { installed: false, loading: false },
+          'gemini-cli': { installed: false, loading: false },
+          'codex-cli': { installed: false, loading: false },
           'kimi-cli': { installed: false, loading: false },
         });
-        setConnectType('openrouter');
       });
   }, []);
 
+  // Detect Ollama
+  useEffect(() => {
+    const detectOllama = async () => {
+      try {
+        const res = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+          const data = await res.json();
+          const models = (data.models ?? []).slice(0, 5);
+          setOllamaModels(models);
+          setOllamaDetected(true);
+          if (models.length > 0) setSelectedOllamaModel(models[0].name);
+        } else {
+          setOllamaDetected(false);
+        }
+      } catch {
+        setOllamaDetected(false);
+      }
+    };
+    detectOllama();
+  }, []);
+
+  // API Key validation
+  const validateKey = useCallback(async (key: string, type: ConnectType) => {
+    if (!key || key.length < 10) { setKeyValidation('idle'); return; }
+    setKeyValidation('checking');
+    try {
+      const res = await authFetch('/api/onboarding/validate-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, provider: type }),
+      });
+      const data = await res.json();
+      setKeyValidation(data.valid ? 'valid' : 'invalid');
+    } catch {
+      setKeyValidation('invalid');
+    }
+  }, []);
+
+  const debouncedValidate = useCallback((key: string, type: ConnectType) => {
+    if (validationTimer.current) clearTimeout(validationTimer.current);
+    if (!key || key.length < 10) { setKeyValidation('idle'); return; }
+    validationTimer.current = setTimeout(() => validateKey(key, type), 800);
+  }, [validateKey]);
+
+  useEffect(() => {
+    return () => { if (validationTimer.current) clearTimeout(validationTimer.current); };
+  }, []);
+
   // Helpers
-  const cliStatusProps = (id: 'claude-code' | 'kimi-cli'): Pick<ConnectOptionProps, 'statusText' | 'statusColor' | 'loading'> => {
+  const cliStatusProps = (id: ConnectType): Pick<ConnectOptionProps, 'statusText' | 'statusColor' | 'loading'> => {
     const s = cliStatus[id];
     if (s?.loading) return { loading: true };
     if (!s?.installed) return { statusText: o.connectStatusNotFound, statusColor: '#52525b' };
@@ -184,14 +320,23 @@ export function OnboardingWizard() {
   const canProceedStep0 = companyName.trim().length >= 1;
   const canProceedStep1 = (() => {
     if (!connectType) return false;
-    if (connectType === 'openrouter' || connectType === 'anthropic') return apiKey.trim().length > 10;
-    return !cliStatus[connectType]?.loading; // CLI: can proceed even if not installed
+    if (connectType === 'openrouter' || connectType === 'anthropic' || connectType === 'openai') return apiKey.trim().length > 10;
+    if (connectType === 'ollama') return ollamaDetected === true && selectedOllamaModel.length > 0;
+    return !cliStatus[connectType]?.loading;
   })();
 
   const handleLaunch = async () => {
     if (!connectType) return;
     setLoading(true);
     setError(null);
+
+    setSuccessSteps([
+      o.successCreatingCompany,
+      o.successCreatingCeo,
+      o.successGeneratingTasks,
+    ]);
+    setShowSuccess(true);
+
     try {
       // 1. Create company
       const compRes = await authFetch('/api/companies', {
@@ -202,13 +347,26 @@ export function OnboardingWizard() {
       if (!compRes.ok) throw new Error(o.errorCreateCompany);
       const company = await compRes.json();
 
-      // 2. Save API key if chosen
-      if ((connectType === 'openrouter' || connectType === 'anthropic') && apiKey.trim()) {
-        const keyName = connectType === 'openrouter' ? 'openrouter_api_key' : 'anthropic_api_key';
+      // 2. Save API key / settings if chosen
+      if ((connectType === 'openrouter' || connectType === 'anthropic' || connectType === 'openai') && apiKey.trim()) {
+        const keyName = connectType === 'openrouter' ? 'openrouter_api_key' : connectType === 'anthropic' ? 'anthropic_api_key' : 'openai_api_key';
         await authFetch(`/api/settings/${keyName}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ unternehmenId: company.id, value: apiKey.trim() }),
+        });
+      }
+
+      if (connectType === 'ollama') {
+        await authFetch(`/api/settings/ollama_base_url`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ unternehmenId: company.id, value: 'http://localhost:11434' }),
+        });
+        await authFetch(`/api/settings/ollama_default_model`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ unternehmenId: company.id, value: selectedOllamaModel }),
         });
       }
 
@@ -227,19 +385,43 @@ export function OnboardingWizard() {
       if (!agentRes.ok) throw new Error(o.errorCreateAgent);
       const agent = await agentRes.json();
 
-      // 4. Hard-navigate to CEO chat (resets App state with new company)
       localStorage.removeItem('oc_force_onboarding');
-      window.location.href = `/chat?agent=${agent.id}&company=${company.id}`;
+      // Navigate will happen from SuccessScreen onDone callback
+      return { company, agent };
     } catch (e: any) {
+      setShowSuccess(false);
       setError(e.message || o.errorGeneric);
       setLoading(false);
+      return null;
     }
   };
 
-  const isApiKeyMode = connectType === 'openrouter' || connectType === 'anthropic';
-  const showCliWarning = (connectType === 'claude-code' || connectType === 'kimi-cli')
+  const [launchResult, setLaunchResult] = useState<any>(null);
+
+  const onSuccessDone = useCallback(() => {
+    if (launchResult?.agent?.id && launchResult?.company?.id) {
+      navigate(`/chat?agent=${launchResult.agent.id}&company=${launchResult.company.id}&welcome=1`);
+    }
+  }, [launchResult, navigate]);
+
+  const doLaunch = async () => {
+    const result = await handleLaunch();
+    if (result) setLaunchResult(result);
+  };
+
+  const isApiKeyMode = connectType === 'openrouter' || connectType === 'anthropic' || connectType === 'openai';
+  const isOllamaMode = connectType === 'ollama';
+  const showCliWarning = (connectType === 'claude-code' || connectType === 'gemini-cli' || connectType === 'codex-cli' || connectType === 'kimi-cli')
     && !cliStatus[connectType]?.loading
     && !cliStatus[connectType]?.installed;
+
+  const stepLabels: [string, string, string] = isGerman
+    ? [o.stepWorkspace, o.stepConnect, o.stepSuccess]
+    : [o.stepWorkspace, o.stepConnect, o.stepSuccess];
+
+  if (showSuccess) {
+    return <SuccessScreen steps={successSteps} onDone={onSuccessDone} />;
+  }
 
   return (
     <div style={{
@@ -255,7 +437,7 @@ export function OnboardingWizard() {
       }} />
 
       <div style={{
-        width: '100%', maxWidth: 468, position: 'relative', zIndex: 1,
+        width: '100%', maxWidth: 520, position: 'relative', zIndex: 1,
         background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)',
         padding: '2rem 2rem 1.5rem',
         boxShadow: '0 0 0 1px rgba(0,0,0,0.5), 0 32px 64px rgba(0,0,0,0.5)',
@@ -272,7 +454,7 @@ export function OnboardingWizard() {
           <p style={{ fontSize: '0.75rem', color: '#3f3f46', margin: 0 }}>{o.tagline}</p>
         </div>
 
-        <StepBar current={step} labels={[o.stepWorkspace, o.stepConnect]} />
+        <StepBar current={step} labels={stepLabels} />
 
         {/* ─── Step 0: Workspace ─── */}
         {step === 0 && (
@@ -321,7 +503,7 @@ export function OnboardingWizard() {
           </div>
         )}
 
-        {/* ─── Step 1: Connect CEO ─── */}
+        {/* ─── Step 1: Connect ─── */}
         {step === 1 && (
           <div key="step1">
             <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#fff', margin: '0 0 0.375rem' }}>
@@ -331,80 +513,199 @@ export function OnboardingWizard() {
               {o.connectDesc}
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '0.875rem' }}>
-              <ConnectOption
-                id="claude-code"
-                icon="⚡"
-                label="Claude Code"
-                description={o.connectClaudeDesc}
-                badge={o.connectRecommended}
-                {...cliStatusProps('claude-code')}
-                selected={connectType === 'claude-code'}
-                onSelect={() => { setConnectType('claude-code'); setApiKey(''); }}
-              />
-              <ConnectOption
-                id="kimi-cli"
-                icon="🌙"
-                label="Kimi CLI"
-                description={o.connectKimiDesc}
-                {...cliStatusProps('kimi-cli')}
-                selected={connectType === 'kimi-cli'}
-                onSelect={() => { setConnectType('kimi-cli'); setApiKey(''); }}
-              />
+            {/* Cloud Providers */}
+            <SectionHeader icon={Cloud} label={o.connectSectionCloud} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '0.5rem' }}>
               <ConnectOption
                 id="openrouter"
                 icon="🔗"
                 label="OpenRouter"
                 description={o.connectOpenrouterDesc}
-                badge="API"
-                badgeColor="#818cf8"
+                badge={o.connectRecommended}
                 selected={connectType === 'openrouter'}
-                onSelect={() => setConnectType('openrouter')}
+                onSelect={() => { setConnectType('openrouter'); setApiKey(''); setKeyValidation('idle'); }}
               />
               <ConnectOption
                 id="anthropic"
                 icon="🤖"
                 label="Anthropic"
                 description={o.connectAnthropicDesc}
-                badge="API"
-                badgeColor="#818cf8"
                 selected={connectType === 'anthropic'}
-                onSelect={() => setConnectType('anthropic')}
+                onSelect={() => { setConnectType('anthropic'); setApiKey(''); setKeyValidation('idle'); }}
+              />
+              <ConnectOption
+                id="openai"
+                icon="🅾️"
+                label="OpenAI"
+                description={isGerman ? 'Zugriff auf GPT-4o, o3 und mehr über OpenAI API-Key.' : 'Access GPT-4o, o3 and more via OpenAI API key.'}
+                selected={connectType === 'openai'}
+                onSelect={() => { setConnectType('openai'); setApiKey(''); setKeyValidation('idle'); }}
               />
             </div>
 
+            {/* Local / Free */}
+            <SectionHeader icon={Server} label={o.connectSectionLocal} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '0.5rem' }}>
+              <ConnectOption
+                id="ollama"
+                icon="🦙"
+                label="Ollama"
+                description={o.connectOllamaDesc}
+                badge={isGerman ? 'Kostenlos' : 'Free'}
+                badgeColor="#22c55e"
+                statusText={ollamaDetected === null ? o.connectOllamaDetecting : ollamaDetected ? o.connectOllamaFound(ollamaModels.map(m => m.name).join(', ')) : o.connectOllamaNotFound}
+                statusColor={ollamaDetected === true ? '#22c55e' : ollamaDetected === false ? '#ef4444' : undefined}
+                loading={ollamaDetected === null}
+                selected={connectType === 'ollama'}
+                onSelect={() => { setConnectType('ollama'); setApiKey(''); setKeyValidation('idle'); }}
+              />
+              {isOllamaMode && ollamaDetected === true && ollamaModels.length > 0 && (
+                <div style={{ paddingLeft: '0.5rem', marginTop: '0.25rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#a1a1aa', marginBottom: '0.4rem', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+                    {o.connectOllamaModelLabel}
+                  </label>
+                  <select
+                    value={selectedOllamaModel}
+                    onChange={e => setSelectedOllamaModel(e.target.value)}
+                    style={{ ...inputStyle, cursor: 'pointer' }}
+                    {...focusHandlers}
+                  >
+                    {ollamaModels.map(m => (
+                      <option key={m.name} value={m.name} style={{ background: '#09090b', color: '#fff' }}>{m.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {isOllamaMode && ollamaDetected === false && (
+                <div style={{ padding: '0.75rem 0.875rem', background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.18)', fontSize: '0.78rem', color: '#fca5a5', display: 'flex', gap: '0.6rem', alignItems: 'flex-start', marginTop: '0.5rem' }}>
+                  <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    {o.connectOllamaNotFound}
+                    <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" style={{ color: '#c5a059', textDecoration: 'underline', marginLeft: 4 }}>
+                      {o.connectOllamaInstall} ↗
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Advanced — CLI Tools */}
+            <button
+              onClick={() => setAdvancedMode(v => !v)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.5rem',
+                background: 'none', border: 'none', color: '#52525b', cursor: 'pointer',
+                fontSize: '0.75rem', fontWeight: 600, padding: '0.5rem 0', marginTop: '0.5rem',
+              }}
+            >
+              <Wrench size={12} />
+              {advancedMode ? o.connectHideAdvanced : o.connectShowAdvanced}
+              <ChevronRight size={12} style={{ transform: advancedMode ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
+            </button>
+
+            {advancedMode && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.5rem' }}>
+                <ConnectOption
+                  id="claude-code"
+                  icon="⚡"
+                  label="Claude Code"
+                  description={o.connectClaudeDesc}
+                  {...cliStatusProps('claude-code')}
+                  selected={connectType === 'claude-code'}
+                  onSelect={() => { setConnectType('claude-code'); setApiKey(''); setKeyValidation('idle'); }}
+                />
+                <ConnectOption
+                  id="gemini-cli"
+                  icon="✨"
+                  label="Gemini CLI"
+                  description={isGerman ? 'Nutzt die lokale Gemini CLI — kostenlos über dein Google-Abo.' : 'Uses local Gemini CLI — free via your Google subscription.'}
+                  {...cliStatusProps('gemini-cli')}
+                  selected={connectType === 'gemini-cli'}
+                  onSelect={() => { setConnectType('gemini-cli'); setApiKey(''); setKeyValidation('idle'); }}
+                />
+                <ConnectOption
+                  id="codex-cli"
+                  icon="💻"
+                  label="Codex CLI"
+                  description={isGerman ? 'Nutzt die lokale Codex CLI — kostenlos über dein OpenAI-Abo.' : 'Uses local Codex CLI — free via your OpenAI subscription.'}
+                  {...cliStatusProps('codex-cli')}
+                  selected={connectType === 'codex-cli'}
+                  onSelect={() => { setConnectType('codex-cli'); setApiKey(''); setKeyValidation('idle'); }}
+                />
+                <ConnectOption
+                  id="kimi-cli"
+                  icon="🌙"
+                  label="Kimi CLI"
+                  description={o.connectKimiDesc}
+                  {...cliStatusProps('kimi-cli')}
+                  selected={connectType === 'kimi-cli'}
+                  onSelect={() => { setConnectType('kimi-cli'); setApiKey(''); setKeyValidation('idle'); }}
+                />
+              </div>
+            )}
+
             {/* API Key input */}
             {isApiKeyMode && (
-              <div style={{ marginTop: '0.25rem' }}>
+              <div style={{ marginTop: '0.75rem' }}>
                 <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#a1a1aa', marginBottom: '0.4rem', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
-                  {connectType === 'openrouter' ? 'OpenRouter API Key' : 'Anthropic API Key'} *
+                  {connectType === 'openrouter' ? 'OpenRouter API Key' : connectType === 'anthropic' ? 'Anthropic API Key' : 'OpenAI API Key'} *
                 </label>
                 <input
                   autoFocus
                   type="password"
                   value={apiKey}
-                  onChange={e => setApiKey(e.target.value)}
-                  placeholder={connectType === 'openrouter' ? 'sk-or-...' : 'sk-ant-...'}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setApiKey(val);
+                    if (connectType) debouncedValidate(val, connectType);
+                  }}
+                  placeholder={
+                    connectType === 'openrouter' ? 'sk-or-...' :
+                    connectType === 'anthropic' ? 'sk-ant-...' : 'sk-...'
+                  }
                   style={inputStyle}
                   {...focusHandlers}
                 />
-                <p style={{ margin: '0.375rem 0 0', fontSize: '0.69rem', color: '#52525b' }}>
-                  {connectType === 'openrouter' ? o.connectOrKeyHint : o.connectAnthropicKeyHint}
-                </p>
+                <div style={{ marginTop: '0.375rem', display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: 18 }}>
+                  {keyValidation === 'checking' && (
+                    <span style={{ fontSize: '0.69rem', color: '#a1a1aa', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> {o.connectValidating}
+                    </span>
+                  )}
+                  {keyValidation === 'valid' && (
+                    <span style={{ fontSize: '0.69rem', color: '#22c55e' }}>{o.connectValid}</span>
+                  )}
+                  {keyValidation === 'invalid' && (
+                    <span style={{ fontSize: '0.69rem', color: '#ef4444' }}>{o.connectInvalid}</span>
+                  )}
+                  {keyValidation === 'idle' && (
+                    <span style={{ fontSize: '0.69rem', color: '#52525b' }}>
+                      {connectType === 'openrouter' ? o.connectOrKeyHint :
+                       connectType === 'anthropic' ? o.connectAnthropicKeyHint :
+                       'Create a key at platform.openai.com'}
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
             {/* CLI not installed notice */}
             {showCliWarning && (
-              <div style={{ padding: '0.75rem 0.875rem', background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.18)', fontSize: '0.78rem', color: '#d97706', display: 'flex', gap: '0.6rem', alignItems: 'flex-start' }}>
+              <div style={{ padding: '0.75rem 0.875rem', background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.18)', fontSize: '0.78rem', color: '#d97706', display: 'flex', gap: '0.6rem', alignItems: 'flex-start', marginTop: '0.75rem' }}>
                 <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
                 <div>
                   <div style={{ marginBottom: 6 }}>
-                    {o.connectCliNotInstalled(connectType === 'claude-code' ? 'Claude Code' : 'Kimi CLI')}
+                    {o.connectCliNotInstalled(
+                      connectType === 'claude-code' ? 'Claude Code' :
+                      connectType === 'gemini-cli' ? 'Gemini CLI' :
+                      connectType === 'codex-cli' ? 'Codex CLI' : 'Kimi CLI'
+                    )}
                     {' '}{o.connectCliInstallWith}
                   </div>
                   <code style={{ display: 'block', padding: '4px 8px', background: 'rgba(0,0,0,0.35)', fontFamily: 'monospace', fontSize: '0.72rem', color: '#e2e8f0', marginBottom: 6 }}>
-                    {connectType === 'claude-code' ? 'npm install -g @anthropic-ai/claude-code' : 'pip install kimi-cli'}
+                    {connectType === 'claude-code' ? 'npm install -g @anthropic-ai/claude-code' :
+                     connectType === 'gemini-cli' ? 'npm install -g @google/gemini-cli' :
+                     connectType === 'codex-cli' ? 'npm install -g @openai/codex' : 'pip install kimi-cli'}
                   </code>
                   <span style={{ fontSize: '0.68rem', color: '#78716c' }}>{o.connectCliSkipHint}</span>
                 </div>
@@ -450,7 +751,7 @@ export function OnboardingWizard() {
           ) : (
             <button
               disabled={!canProceedStep1 || loading}
-              onClick={handleLaunch}
+              onClick={doLaunch}
               style={{
                 display: 'flex', alignItems: 'center', gap: '0.5rem',
                 padding: '0.6rem 1.25rem', borderRadius: 0, fontSize: '0.875rem', fontWeight: 600,
@@ -477,7 +778,6 @@ export function OnboardingWizard() {
           <select
             value={language}
             onChange={e => {
-              // Use the i18n setLanguage via localStorage + reload
               localStorage.setItem('opencognit_language', e.target.value);
               window.location.reload();
             }}

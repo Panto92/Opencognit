@@ -4,6 +4,7 @@ import {
   Plus, ArrowRight, Loader2, MessageSquare, Sparkles, Zap, ZapOff,
   Settings2, Crown, Play, Pause, ShieldAlert, Activity, Terminal, X,
   Users, CheckCircle2, Target, Wallet, AlertCircle, CornerDownRight,
+  RotateCcw,
 } from 'lucide-react';
 import { PageHelp } from '../components/PageHelp';
 import { useNavigate } from 'react-router-dom';
@@ -353,6 +354,7 @@ export function Experts() {
   const [activeChatExpert, setActiveChatExpert] = useState<ExperteType | null>(null);
   const [wakingUp, setWakingUp] = useState<Set<string>>(new Set());
   const [pausingAgents, setPausingAgents] = useState<Set<string>>(new Set());
+  const [resettingAgents, setResettingAgents] = useState<Set<string>>(new Set());
 
   type QualityEntry = {
     expertId: string; name: string; totalRuns: number; approvedRuns: number; meaningfulRuns: number;
@@ -504,6 +506,27 @@ export function Experts() {
         setWakingUp(prev => { const s = new Set(prev); s.delete(expertId); return s; });
         reload();
       }, 1500);
+    }
+  };
+
+  // ── reset memory ──────────────────────────────────────────────────────────
+  const resetMemory = async (expert: ExperteType) => {
+    if (!confirm(de
+      ? `Gedächtnis von ${expert.name} zurücksetzen?\n\nDiary, Wissensgraph, Embeddings und Checkpoints werden gelöscht. Der Agent baut seinen Kontext beim nächsten Wakeup neu auf.`
+      : `Reset memory for ${expert.name}?\n\nDiary, knowledge graph, embeddings and checkpoints will be deleted. The agent will rebuild context on next wakeup.`
+    )) return;
+    setResettingAgents(prev => new Set(prev).add(expert.id));
+    try {
+      const r = await authFetch(`/api/agents/${expert.id}/reset-memory`, { method: 'POST' });
+      if (!r.ok) throw new Error(await r.text());
+      toast.agent(
+        de ? `${expert.name} zurückgesetzt` : `${expert.name} reset`,
+        de ? 'Gedächtnis gelöscht — Kontext wird neu aufgebaut' : 'Memory cleared — context will rebuild',
+      );
+    } catch (e: any) {
+      toast.error(de ? 'Fehler beim Zurücksetzen' : 'Reset failed', e.message);
+    } finally {
+      setResettingAgents(prev => { const s = new Set(prev); s.delete(expert.id); return s; });
     }
   };
 
@@ -893,6 +916,16 @@ export function Experts() {
                         onMouseLeave={e => { e.currentTarget.style.color = '#71717a'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}
                       >
                         <Terminal size={14} />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); resetMemory(m); }}
+                        disabled={resettingAgents.has(m.id)}
+                        title={de ? 'Gedächtnis zurücksetzen' : 'Reset memory'}
+                        style={{ display: 'flex', alignItems: 'center', padding: '0.5rem 0.625rem', backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 0, color: '#71717a', fontSize: '0.8125rem', cursor: resettingAgents.has(m.id) ? 'default' : 'pointer', transition: 'all 0.2s' }}
+                        onMouseEnter={e => { if (!resettingAgents.has(m.id)) { e.currentTarget.style.backgroundColor = 'rgba(155,135,200,0.1)'; e.currentTarget.style.color = '#9b87c8'; } }}
+                        onMouseLeave={e => { if (!resettingAgents.has(m.id)) { e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#71717a'; } }}
+                      >
+                        {resettingAgents.has(m.id) ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <RotateCcw size={14} />}
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); togglePause(m); }}

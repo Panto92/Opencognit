@@ -43,8 +43,9 @@ export function LoginPage({ erstesKonto = false }: { erstesKonto?: boolean }) {
         await registrieren(name, email, passwort);
       }
       window.location.href = "/";
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof ApiError) setFehler(err.message);
+      else if (err instanceof Error) setFehler(err.message);
       else setFehler(t.login.error);
     } finally {
       setLaden(false);

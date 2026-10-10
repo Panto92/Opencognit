@@ -18,6 +18,7 @@ export interface Unternehmen {
   beschreibung: string | null;
   ziel: string | null;
   status: 'active' | 'paused' | 'archived';
+  workDir?: string | null;
   erstelltAm: string;
   aktualisiertAm: string;
 }

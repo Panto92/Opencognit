@@ -119,7 +119,8 @@ export default function AgentInbox({ agentId, companyId, agents, de = false }: A
   }, [fetchInbox]);
 
   // Real-time updates via WebSocket
-  useWebSocketEvent('agent_message', (data: A2AMessage) => {
+  useWebSocketEvent('agent_message', (msg) => {
+    const data = (msg.data ?? msg) as A2AMessage;
     setMessages(prev => {
       if (prev.some(m => m.id === data.id)) return prev;
       return [data, ...prev];

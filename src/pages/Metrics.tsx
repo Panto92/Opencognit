@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { BarChart3, TrendingUp, Cpu, AlertTriangle, CheckCircle, RefreshCw,
-         Zap, DollarSign, Activity, Shield, Database, Trash2, Download } from 'lucide-react';
+         Zap, DollarSign, Activity, Shield, Database, Trash2, Download, Server, Layers } from 'lucide-react';
 import { useBreadcrumbs } from '../hooks/useBreadcrumbs';
 import { useI18n } from '../i18n';
 import { useCompany } from '../hooks/useCompany';
+import type { TelemetryData } from '../api/health';
 
 function authFetch(url: string, opts?: RequestInit) {
   const token = localStorage.getItem('opencognit_token');
@@ -114,10 +115,12 @@ export function Metrics() {
   const [backups, setBackups] = useState<Backup[]>([]);
   const [loading, setLoading] = useState(true);
   const [healthLoading, setHealthLoading] = useState(true);
+  const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
+  const [telemetryLoading, setTelemetryLoading] = useState(true);
   const [backupRunning, setBackupRunning] = useState(false);
   const [cleanupRunning, setCleanupRunning] = useState(false);
   const [cleanupStats, setCleanupStats] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'health' | 'backups'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'health' | 'system' | 'backups'>('overview');
 
   const loadMetrics = useCallback(async () => {
     setLoading(true);
@@ -143,6 +146,16 @@ export function Metrics() {
     }
   }, [selectedUnternehmenId]);
 
+  const loadTelemetry = useCallback(async () => {
+    setTelemetryLoading(true);
+    try {
+      const res = await authFetch('/api/system/telemetry');
+      if (res.ok) setTelemetry(await res.json());
+    } finally {
+      setTelemetryLoading(false);
+    }
+  }, []);
+
   const loadBackups = useCallback(async () => {
     const res = await authFetch('/api/system/backups');
     if (res.ok) {
@@ -152,7 +165,7 @@ export function Metrics() {
   }, []);
 
   useEffect(() => { loadMetrics(); }, [loadMetrics]);
-  useEffect(() => { loadHealth(); loadBackups(); }, [loadHealth, loadBackups]);
+  useEffect(() => { loadHealth(); loadBackups(); loadTelemetry(); }, [loadHealth, loadBackups, loadTelemetry]);
 
   const runBackup = async () => {
     setBackupRunning(true);
@@ -216,6 +229,7 @@ export function Metrics() {
         {[
           { id: 'overview', label: t.metriken.tabOverview, icon: BarChart3 },
           { id: 'health', label: `${t.metriken.tabHealth}${alertCount > 0 ? ` (${alertCount})` : ''}`, icon: alertCount > 0 ? AlertTriangle : Shield },
+          { id: 'system', label: 'System', icon: Server },
           { id: 'backups', label: t.metriken.tabBackups, icon: Database },
         ].map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} style={{
@@ -482,6 +496,90 @@ export function Metrics() {
                   <div>Kein Problem erkannt. Alle Agenten arbeiten normal.</div>
                 </div>
               )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── SYSTEM TAB ───────────────────────────────────────────────────────── */}
+      {activeTab === 'system' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {telemetryLoading ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3rem' }}>
+              <div style={{ width: 24, height: 24, borderRadius: '50%', border: '2px solid rgba(197,160,89,0.2)', borderTopColor: '#c5a059', animation: 'spin 0.8s linear infinite' }} />
+            </div>
+          ) : telemetry && (
+            <>
+              {/* Top stats */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                <StatCard icon={Server} label="Uptime" value={`${Math.floor(telemetry.uptimeSeconds / 60)}m`} sub={`${telemetry.uptimeSeconds}s total`} color="#60a5fa" />
+                <StatCard icon={Layers} label="Queue" value={`${telemetry.queue.pending}`} sub={telemetry.queue.initialized ? `${telemetry.queue.processing} processing` : 'not initialized'} color="#a78bfa" />
+                <StatCard icon={Activity} label="Requests / min" value={`${telemetry.requests.requestsPerMinute}`} sub={`${telemetry.requests.totalRequests} last hour`} color="#22c55e" />
+                <StatCard icon={Zap} label="Avg Latency" value={`${telemetry.requests.avgLatencyMs}ms`} sub={`p95: ${telemetry.requests.p95LatencyMs}ms`} color="#f59e0b" />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                {/* Agent status distribution */}
+                <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 0, padding: '1.25rem' }}>
+                  <h3 style={{ margin: '0 0 1rem', fontSize: '0.875rem', color: '#a1a1aa', fontWeight: 600 }}>Agenten-Status</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {Object.entries(telemetry.agents).map(([status, cnt]) => (
+                      <div key={status} style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                        <span style={{ flex: 1, fontSize: '0.75rem', color: '#d4d4d8', textTransform: 'capitalize' }}>{status}</span>
+                        <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#fff' }}>{fmtNumber(cnt as number)}</span>
+                      </div>
+                    ))}
+                    {Object.keys(telemetry.agents).length === 0 && <p style={{ color: '#52525b', fontSize: '0.8rem' }}>Keine Agenten</p>}
+                  </div>
+                </div>
+
+                {/* Run status 24h */}
+                <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 0, padding: '1.25rem' }}>
+                  <h3 style={{ margin: '0 0 1rem', fontSize: '0.875rem', color: '#a1a1aa', fontWeight: 600 }}>Runs (24h)</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {Object.entries(telemetry.runs24h).map(([status, cnt]) => (
+                      <div key={status} style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                        <span style={{
+                          width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                          background: RUN_STATUS_COLOR[status] || '#52525b',
+                        }} />
+                        <span style={{ flex: 1, fontSize: '0.75rem', color: '#d4d4d8', textTransform: 'capitalize' }}>{status}</span>
+                        <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#fff' }}>{fmtNumber(cnt as number)}</span>
+                      </div>
+                    ))}
+                    {Object.keys(telemetry.runs24h).length === 0 && <p style={{ color: '#52525b', fontSize: '0.8rem' }}>Keine Runs</p>}
+                  </div>
+                </div>
+
+                {/* Request status breakdown */}
+                <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 0, padding: '1.25rem' }}>
+                  <h3 style={{ margin: '0 0 1rem', fontSize: '0.875rem', color: '#a1a1aa', fontWeight: 600 }}>HTTP Status (1h)</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {Object.entries(telemetry.requests.statusBreakdown).map(([bucket, cnt]) => (
+                      <div key={bucket} style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                        <span style={{ flex: 1, fontSize: '0.75rem', color: '#d4d4d8' }}>{bucket}</span>
+                        <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#fff' }}>{fmtNumber(cnt as number)}</span>
+                      </div>
+                    ))}
+                    {Object.keys(telemetry.requests.statusBreakdown).length === 0 && <p style={{ color: '#52525b', fontSize: '0.8rem' }}>Keine Requests</p>}
+                  </div>
+                </div>
+
+                {/* Top paths */}
+                <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 0, padding: '1.25rem' }}>
+                  <h3 style={{ margin: '0 0 1rem', fontSize: '0.875rem', color: '#a1a1aa', fontWeight: 600 }}>Top Endpoints (1h)</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {telemetry.requests.topPaths.map((p) => (
+                      <div key={p.path} style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                        <span style={{ flex: 1, fontSize: '0.75rem', color: '#d4d4d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.path}</span>
+                        <span style={{ fontSize: '0.7rem', color: '#71717a' }}>{p.count}×</span>
+                        <span style={{ fontSize: '0.7rem', color: '#52525b', width: 50, textAlign: 'right' }}>{p.avgLatencyMs}ms</span>
+                      </div>
+                    ))}
+                    {telemetry.requests.topPaths.length === 0 && <p style={{ color: '#52525b', fontSize: '0.8rem' }}>Keine Daten</p>}
+                  </div>
+                </div>
+              </div>
             </>
           )}
         </div>

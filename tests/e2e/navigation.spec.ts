@@ -44,6 +44,9 @@ test.describe('Navigation', () => {
   test('can navigate to Companies page', async ({ page }) => {
     await page.getByText('Skip tour').click().catch(() => {});
 
+    // Expand "Mehr"/"More" section first since it is collapsed by default
+    await page.getByRole('button', { name: /Mehr|More/i }).click().catch(() => {});
+
     await page.locator('[data-tour-step="companies"]').click();
 
     await expect(page).toHaveURL('/companies');

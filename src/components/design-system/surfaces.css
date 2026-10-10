@@ -1,0 +1,260 @@
+/*
+ * OpenCognit surfaces — gold on black, modern.
+ *
+ * .oc-card        the one card surface for every panel
+ * .oc-card--glass frosted glass for cards that stand for someone (team cards): translucent,
+ *                 blurred, lit from the top left — set apart from the glossy KPI row
+ * .oc-card--pearl the glossy variant, reserved for the KPI row at the top of a page
+ *                 (twenty glossy cards on one screen get noisy; as an accent on top it carries)
+ * .oc-pill        pill buttons; --gold is the primary action
+ *
+ * The pearl recipe: a wide, flat dome (::before) over the
+ * top half plus a specular edge (::after) just under the top border. On hover the gloss warms
+ * into gold instead of turning brighter — white glow on black reads as haze, colour reads as light.
+ */
+
+:root {
+  --oc-page: #070605;
+  --oc-card: #0b0a08;
+  --oc-card-pearl: #080706;
+  --oc-line: rgba(255, 255, 255, 0.06);
+  --oc-line-strong: rgba(255, 255, 255, 0.1);
+  --oc-text: #f2ece2;
+  --oc-text-2: rgba(242, 236, 226, 0.62);
+  --oc-text-3: rgba(242, 236, 226, 0.4);
+  --oc-gold: #c5a059;
+  --oc-gold-bright: #e2c27d;
+  --oc-gold-soft: rgba(197, 160, 89, 0.14);
+  --oc-green: #4ade80;
+  --oc-red: #f87171;
+  --oc-amber: #fbbf24;
+  --oc-radius: 24px;
+}
+
+.oc-card {
+  position: relative;
+  isolation: isolate;
+  border-radius: var(--oc-radius);
+  background: var(--oc-card);
+  border: 1px solid var(--oc-line);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.035),
+    inset 0 -10px 24px -10px rgba(0, 0, 0, 0.6);
+  transition: transform 0.3s, box-shadow 0.3s, border-color 0.3s;
+}
+.oc-card::before {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  inset: 0 0 50% 0;
+  z-index: -1;
+  border-radius: var(--oc-radius) var(--oc-radius) 0 0;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.02), transparent);
+}
+.oc-card--clickable { cursor: pointer; }
+.oc-card--active { border-color: rgba(197, 160, 89, 0.35); }
+.oc-card--clickable:hover {
+  transform: translateY(-2px);
+  border-color: rgba(197, 160, 89, 0.25);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.05),
+    inset 0 -10px 24px -10px rgba(0, 0, 0, 0.65),
+    0 16px 36px -18px rgba(197, 160, 89, 0.35);
+}
+
+.oc-card--glass {
+  overflow: hidden;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.018) 38%, rgba(197, 160, 89, 0.035) 100%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
+  border-color: rgba(255, 255, 255, 0.09);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.09),
+    inset 1px 0 0 0 rgba(255, 255, 255, 0.035),
+    0 22px 44px -26px rgba(0, 0, 0, 0.85);
+}
+.oc-card--glass::before {
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(120% 70% at 0% 0%, rgba(255, 255, 255, 0.07), transparent 55%);
+}
+.oc-card--glass.oc-card--active {
+  border-color: rgba(197, 160, 89, 0.4);
+  box-shadow:
+    inset 0 1px 0 0 rgba(226, 194, 125, 0.18),
+    inset 1px 0 0 0 rgba(255, 255, 255, 0.035),
+    0 0 0 1px rgba(197, 160, 89, 0.06),
+    0 22px 44px -22px rgba(197, 160, 89, 0.32);
+}
+.oc-card--glass.oc-card--clickable:hover {
+  border-color: rgba(197, 160, 89, 0.3);
+  box-shadow:
+    inset 0 1px 0 0 rgba(226, 194, 125, 0.16),
+    inset 1px 0 0 0 rgba(255, 255, 255, 0.04),
+    0 22px 44px -20px rgba(197, 160, 89, 0.3);
+}
+
+.oc-card--pearl {
+  overflow: hidden;
+  background: var(--oc-card-pearl);
+  border-color: rgba(255, 255, 255, 0.05);
+  box-shadow:
+    inset 0 0.3rem 0.9rem rgba(255, 255, 255, 0.07),
+    inset 0 -0.1rem 0.3rem rgba(0, 0, 0, 0.7),
+    inset 0 -0.4rem 0.9rem rgba(255, 255, 255, 0.05),
+    0 2rem 2rem -1rem rgba(0, 0, 0, 0.5);
+}
+.oc-card--pearl::before {
+  inset: -320% -80% 78% -80%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.035);
+}
+.oc-card--pearl::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  top: 5%;
+  bottom: 70%;
+  z-index: -1;
+  border-radius: 18px 18px 0 0;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.06), transparent);
+  box-shadow: inset 0 9px 7px -9px rgba(255, 255, 255, 0.35);
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.oc-card--pearl.oc-card--clickable:hover {
+  border-color: rgba(197, 160, 89, 0.3);
+  box-shadow:
+    inset 0 0.3rem 0.9rem rgba(197, 160, 89, 0.16),
+    inset 0 -0.1rem 0.3rem rgba(0, 0, 0, 0.7),
+    inset 0 -0.4rem 0.9rem rgba(197, 160, 89, 0.12),
+    0 2rem 2.4rem -1rem rgba(90, 64, 20, 0.6);
+}
+.oc-card--pearl.oc-card--clickable:hover::before { background: rgba(226, 194, 125, 0.07); }
+.oc-card--pearl.oc-card--clickable:hover::after {
+  background: linear-gradient(to bottom, rgba(226, 194, 125, 0.12), transparent);
+  box-shadow: inset 0 9px 7px -9px rgba(226, 194, 125, 0.55);
+}
+
+.oc-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  height: 38px;
+  padding: 0 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--oc-line-strong);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--oc-text);
+  font: 600 0.8125rem/1 'Inter', system-ui, sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s, border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+/* A toggle pill that is switched on (e.g. a visible panel). */
+.oc-pill--on {
+  background: var(--oc-gold-soft);
+  border-color: rgba(197, 160, 89, 0.35);
+  color: var(--oc-gold);
+}
+.oc-pill:hover { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.16); }
+.oc-pill--gold {
+  border-color: transparent;
+  background: linear-gradient(180deg, var(--oc-gold-bright), var(--oc-gold));
+  color: #1a1206;
+  box-shadow: 0 8px 24px -10px rgba(197, 160, 89, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.oc-pill--gold:hover {
+  background: linear-gradient(180deg, #ecd092, var(--oc-gold-bright));
+  transform: translateY(-1px);
+}
+.oc-pill--ghost { background: transparent; border-color: transparent; color: var(--oc-gold); }
+.oc-pill--ghost:hover { background: var(--oc-gold-soft); border-color: transparent; }
+
+.oc-icon-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--oc-line);
+  color: var(--oc-text-2);
+  flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oc-card, .oc-pill { transition: none; }
+  .oc-card--clickable:hover, .oc-pill--gold:hover { transform: none; }
+}
+
+/* Small round icon button (close, collapse, …). */
+.oc-iconbtn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1px solid var(--oc-line-strong);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--oc-text-2);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+.oc-iconbtn:hover { background: var(--oc-gold-soft); border-color: rgba(197, 160, 89, 0.3); color: var(--oc-gold); }
+
+/* ── Thinking block (ThinkingBlock.tsx) ─────────────────────────────────── */
+.oc-thinking { display: flex; flex-direction: column; gap: 0.6rem; max-width: 640px; }
+.oc-thinking-head { display: flex; align-items: center; gap: 0.5rem; }
+.oc-shimmer {
+  font-size: 0.9375rem;
+  background: linear-gradient(110deg, #6b6356 35%, #f2ece2 50%, #6b6356 65%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: oc-shimmer 4s linear infinite;
+}
+@keyframes oc-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.oc-thinking-card {
+  position: relative;
+  height: 150px;
+  overflow: hidden;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--oc-line);
+}
+.oc-thinking-fade { position: absolute; left: 0; right: 0; height: 56px; z-index: 1; pointer-events: none; }
+.oc-thinking-fade--top { top: 0; background: linear-gradient(to bottom, var(--oc-card) 20%, transparent); }
+.oc-thinking-fade--bottom { bottom: 0; background: linear-gradient(to top, var(--oc-card) 20%, transparent); }
+.oc-thinking-window {
+  height: 100%;
+  overflow: hidden;
+  padding: 2.75rem 1rem;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--oc-text-2);
+}
+.oc-thinking-window--open { height: auto; max-height: 320px; overflow-y: auto; padding: 0.75rem 1rem; border-radius: 14px; background: rgba(255, 255, 255, 0.025); border: 1px solid var(--oc-line); }
+.oc-thinking-step { font-family: var(--font-mono); font-size: 0.75rem; color: var(--oc-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oc-thinking-text { margin: 0.35rem 0; white-space: pre-wrap; }
+.oc-thinking-thought { margin: 0.35rem 0; white-space: pre-wrap; font-style: italic; color: var(--oc-text-3); }
+.oc-thinking-toggle {
+  display: inline-flex; align-items: center; gap: 0.4rem; width: fit-content;
+  padding: 0.25rem 0.5rem 0.25rem 0.25rem; border: none; border-radius: 8px; background: none;
+  color: var(--oc-text-2); font: 500 0.8125rem/1 'Inter', system-ui, sans-serif; cursor: pointer;
+}
+.oc-thinking-toggle:hover { background: rgba(255, 255, 255, 0.04); color: var(--oc-text); }
+@media (prefers-reduced-motion: reduce) { .oc-shimmer { animation: none; color: var(--oc-text-2); background: none; } }
+
+/* Dialogs use the pearl surface, but a tall dialog must not get the card-sized dome and specular
+   band across its content: only a soft light edge along the top stays. */
+.oc-card--pearl.oc-modal::before {
+  inset: 0 0 auto 0;
+  height: 120px;
+  border-radius: inherit;
+  background: radial-gradient(90% 100% at 50% 0%, rgba(255, 255, 255, 0.06), transparent 70%);
+}
+.oc-card--pearl.oc-modal::after { display: none; }

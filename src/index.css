@@ -1,3 +1,5 @@
+@import './components/design-system/surfaces.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -29,6 +31,10 @@
     /* ── Vintage warm palette ────────────────────────────────── */
     --color-gold: #c5a059;
     --color-gold-hover: #d4b06a;
+    /* ── Relaunch design-system surfaces (see components/design-system/surfaces.css) ── */
+    --oc-page: #070605;
+    --oc-card: #0b0a08;
+    --oc-radius: 24px;
     --color-gold-subtle: rgba(197, 160, 89, 0.12);
     --color-gold-glow: rgba(197, 160, 89, 0.22);
     --color-warm-gray-1: #7a7268;
@@ -129,33 +135,33 @@
   }
 
   .dark {
-    --background: hsl(222, 94%, 5%);
-    --foreground: hsl(0, 0%, 100%);
-    --card: hsl(222, 47%, 11%);
-    --card-foreground: hsl(0, 0%, 100%);
-    --popover: hsl(222, 47%, 11%);
-    --popover-foreground: hsl(0, 0%, 100%);
-    --primary: hsl(217, 91%, 53%);
-    --primary-foreground: hsl(0, 0%, 100%);
-    --secondary: hsl(217, 33%, 17%);
-    --secondary-foreground: hsl(0, 0%, 100%);
-    --muted: hsl(217, 33%, 17%);
-    --muted-foreground: hsl(215, 20%, 65%);
-    --accent: hsl(217, 33%, 17%);
-    --accent-foreground: hsl(0, 0%, 100%);
-    --destructive: hsl(0, 62%, 51%);
-    --destructive-foreground: hsl(0, 0%, 100%);
-    --skeleton: hsl(218, 36%, 16%);
-    --border: hsl(217, 33%, 17%);
-    --input: hsl(217, 33%, 17%);
-    --ring: hsl(224, 76%, 48%);
-    --radius: 0px;
+    --background: #070605;
+    --foreground: #f2ece2;
+    --card: #0b0a08;
+    --card-foreground: #f2ece2;
+    --popover: #14110d;
+    --popover-foreground: #f2ece2;
+    --primary: #c5a059;
+    --primary-foreground: #1a1206;
+    --secondary: #1c1813;
+    --secondary-foreground: #f2ece2;
+    --muted: #1c1813;
+    --muted-foreground: #a89f8d;
+    --accent: #26211a;
+    --accent-foreground: #f2ece2;
+    --destructive: #f87171;
+    --destructive-foreground: #1a1206;
+    --skeleton: #1c1813;
+    --border: #26211a;
+    --input: #26211a;
+    --ring: #c5a059;
+    --radius: 12px;
   }
 
   /* Force dark mode for login page */
   .dark body {
-    background-color: hsl(222, 94%, 5%);
-    color: hsl(0, 0%, 100%);
+    background-color: #070605;
+    color: #f2ece2;
   }
 
   body {
@@ -1537,6 +1543,19 @@ body::before {
   50% { opacity: 1; }
 }
 
+/* Background-position sweep for TextShimmer (agent-chat); `shimmer` above is an opacity pulse
+   used elsewhere, so this is a separate keyframe. */
+@keyframes text-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Dictation bars in the agent-chat input. */
+@keyframes voiceBar {
+  from { height: 3px; }
+  to { height: 22px; }
+}
+
 @keyframes float {
   0%, 100% {
     transform: translateY(0) translateX(0);
@@ -1801,6 +1820,12 @@ body::before {
   font-weight: 700;
   letter-spacing: 0.10em;
   text-transform: uppercase;
+}
+
+/* ── Skeleton pulse animation ─────────────────────────────────────────────── */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 

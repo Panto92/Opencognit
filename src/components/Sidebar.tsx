@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Users, ListTodo, Building2,
-  Wallet, ShieldCheck, Activity,
+  Wallet, ShieldCheck, Activity, MonitorPlay,
   Settings, LogOut, Globe, Brain, Database,
   ChevronLeft, ChevronRight, ChevronDown, Clock, FolderOpen, MessagesSquare, Target, Zap, BarChart3, Package, GitBranch, BookOpen, MessageSquare,
 } from 'lucide-react';
@@ -40,12 +40,26 @@ export function Sidebar({ collapsed, onToggle, onSearchClick }: { collapsed: boo
     return () => clearInterval(id);
   }, []);
 
+  // Simple mode — reduces visible modules for new users
+  const [simpleMode, setSimpleMode] = useState(() => localStorage.getItem('oc_simple_mode') === '1');
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'oc_simple_mode') setSimpleMode(e.newValue === '1');
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
   // Collapsible sections state (persisted in localStorage)
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem('sidebar-collapsed-sections');
-      // "Mehr"/"More" is collapsed by default
-      return saved ? new Set(JSON.parse(saved)) : new Set(['Mehr', 'More']);
+      // "Mehr"/"More" is collapsed by default; in simple mode also collapse Intelligence
+      const defaults = new Set(['Mehr', 'More']);
+      if (localStorage.getItem('oc_simple_mode') === '1') {
+        defaults.add('Intelligenz'); defaults.add('Intelligence');
+      }
+      return saved ? new Set(JSON.parse(saved)) : defaults;
     } catch { return new Set(['Mehr', 'More']); }
   });
 
@@ -68,33 +82,80 @@ export function Sidebar({ collapsed, onToggle, onSearchClick }: { collapsed: boo
     duration: 6 + Math.random() * 6,
   })), []);
 
-  const navItems = [
-    // ── Tägliche Nutzung ──
-    { section: de ? 'Betrieb' : 'Operations', items: [
+  const navItems = simpleMode ? [
+    // ══ SIMPLE MODE ══
+    // ── Command — primary actions ──
+    { section: de ? 'Kommando' : 'Command', items: [
       { to: '/chat',          icon: MessageSquare,   label: 'Chat',               tourStep: 'chat' },
       { to: '/',              icon: LayoutDashboard, label: t.nav.dashboard,      tourStep: 'dashboard' },
-      { to: '/companies',     icon: Building2,       label: t.nav.unternehmen,    tourStep: 'companies' },
-      { to: '/experts',       icon: Users,           label: t.nav.experten,       tourStep: 'experts' },
-      { to: '/skill-library', icon: BookOpen,        label: t.nav.skillLibrary,   tourStep: 'skill-library' },
+    ]},
+    // ── Operations — daily work (reduced) ──
+    { section: de ? 'Betrieb' : 'Operations', items: [
+      { to: '/experts',       icon: Users,           label: de ? 'Team' : 'Team', tourStep: 'experts' },
+      { to: '/tasks',         icon: ListTodo,        label: de ? 'Aufgaben' : 'Tasks',   tourStep: 'tasks' },
+    ]},
+    // ── Setup — only shown for new users who haven't created agents yet ──
+    ...(!hasAgents ? [{ section: de ? 'Einrichten' : 'Setup', items: [
+      { to: '/settings',     icon: Settings,       label: de ? '1. API Keys' : '1. API Keys', tourStep: 'settings' },
+      { to: '/experts',      icon: Users,          label: de ? '2. Team anlegen' : '2. Create Team' },
+      { to: '/tasks',        icon: ListTodo,       label: de ? '3. Aufgaben erstellen' : '3. Create Tasks' },
+    ]}] : []),
+    // ── More — everything else ──
+    { section: de ? 'Mehr' : 'More', items: [
+      { to: '/war-room',      icon: MonitorPlay,     label: 'War Room',           tourStep: 'war-room' },
+      { to: '/projects',      icon: FolderOpen,      label: de ? 'Projekte' : 'Projects', tourStep: 'projects' },
       { to: '/approvals',     icon: ShieldCheck,     label: t.nav.genehmigungen,  tourStep: 'approvals' },
       { to: '/costs',         icon: Wallet,          label: t.nav.kosten,         tourStep: 'costs' },
       { to: '/org-chart',     icon: GitBranch,       label: t.nav.organigramm,    tourStep: 'org-chart' },
       { to: '/company-knowledge', icon: Brain,       label: de ? 'Wissensbasis' : 'Knowledge', tourStep: 'knowledge' },
       { to: '/memory',        icon: Database,        label: de ? 'Semantic Memory' : 'Semantic Memory', tourStep: 'semantic-memory' },
-    ]},
-    // ── Setup-Reihenfolge: was zuerst gemacht werden muss ──
-    { section: de ? 'Einrichten' : 'Setup', items: [
-      { to: '/settings',     icon: Settings,       label: de ? '1. API Keys & Einstellungen' : '1. API Keys & Settings', tourStep: 'settings' },
-      { to: '/experts',      icon: Users,          label: de ? '2. Agenten anlegen' : '2. Create Agents' },
-      { to: '/projects',     icon: FolderOpen,     label: de ? '3. Projekte anlegen' : '3. Create Projects',  tourStep: 'projects' },
-      { to: '/tasks',        icon: ListTodo,       label: de ? '4. Aufgaben erstellen' : '4. Create Tasks',   tourStep: 'tasks' },
-      { to: '/routines',     icon: Clock,          label: de ? '5. Routinen einrichten' : '5. Set up Routines', tourStep: 'routines' },
-    ]},
-    // ── Alles weitere ──
-    { section: de ? 'Mehr' : 'More', items: [
+      { to: '/companies',    icon: Building2,      label: t.nav.unternehmen,    tourStep: 'companies' },
+      { to: '/routines',     icon: Clock,          label: de ? 'Routinen' : 'Routines', tourStep: 'routines' },
       { to: '/goals',        icon: Target,         label: t.nav.ziele,          tourStep: 'goals' },
       { to: '/meetings',     icon: MessagesSquare, label: t.nav.meetings,       tourStep: 'meetings' },
       { to: '/activity',     icon: Activity,       label: t.nav.aktivitaet,     tourStep: 'activity' },
+      { to: '/skill-library', icon: BookOpen,       label: t.nav.skillLibrary,   tourStep: 'skill-library' },
+      { to: '/weekly-report',icon: BarChart3,      label: t.nav.weeklyReport,   tourStep: 'weekly-report' },
+      { to: '/clipmart',     icon: Package,        label: 'CognitHub',          tourStep: 'cognithub' },
+      { to: '/plugins',      icon: Package,        label: de ? 'Plugins' : 'Plugins', tourStep: 'plugins' },
+      { to: '/workers',      icon: GitBranch,      label: de ? 'Worker-Nodes' : 'Worker Nodes', tourStep: 'workers' },
+    ]},
+  ] : [
+    // ══ FULL MODE ══
+    // ── Command — primary actions ──
+    { section: de ? 'Kommando' : 'Command', items: [
+      { to: '/chat',          icon: MessageSquare,   label: 'Chat',               tourStep: 'chat' },
+      { to: '/war-room',      icon: MonitorPlay,     label: 'War Room',           tourStep: 'war-room' },
+      { to: '/',              icon: LayoutDashboard, label: t.nav.dashboard,      tourStep: 'dashboard' },
+    ]},
+    // ── Operations — daily work ──
+    { section: de ? 'Betrieb' : 'Operations', items: [
+      { to: '/experts',       icon: Users,           label: de ? 'Team' : 'Team', tourStep: 'experts' },
+      { to: '/tasks',         icon: ListTodo,        label: de ? 'Aufgaben' : 'Tasks',   tourStep: 'tasks' },
+      { to: '/projects',      icon: FolderOpen,      label: de ? 'Projekte' : 'Projects', tourStep: 'projects' },
+      { to: '/approvals',     icon: ShieldCheck,     label: t.nav.genehmigungen,  tourStep: 'approvals' },
+      { to: '/costs',         icon: Wallet,          label: t.nav.kosten,         tourStep: 'costs' },
+    ]},
+    // ── Intelligence — insights & memory ──
+    { section: de ? 'Intelligenz' : 'Intelligence', items: [
+      { to: '/org-chart',     icon: GitBranch,       label: t.nav.organigramm,    tourStep: 'org-chart' },
+      { to: '/company-knowledge', icon: Brain,       label: de ? 'Wissensbasis' : 'Knowledge', tourStep: 'knowledge' },
+      { to: '/memory',        icon: Database,        label: de ? 'Semantic Memory' : 'Semantic Memory', tourStep: 'semantic-memory' },
+    ]},
+    // ── Setup — only shown for new users who haven't created agents yet ──
+    ...(!hasAgents ? [{ section: de ? 'Einrichten' : 'Setup', items: [
+      { to: '/settings',     icon: Settings,       label: de ? '1. API Keys' : '1. API Keys', tourStep: 'settings' },
+      { to: '/experts',      icon: Users,          label: de ? '2. Team anlegen' : '2. Create Team' },
+      { to: '/tasks',        icon: ListTodo,       label: de ? '3. Aufgaben erstellen' : '3. Create Tasks' },
+    ]}] : []),
+    // ── More — secondary features, collapsed by default ──
+    { section: de ? 'Mehr' : 'More', items: [
+      { to: '/companies',    icon: Building2,      label: t.nav.unternehmen,    tourStep: 'companies' },
+      { to: '/routines',     icon: Clock,          label: de ? 'Routinen' : 'Routines', tourStep: 'routines' },
+      { to: '/goals',        icon: Target,         label: t.nav.ziele,          tourStep: 'goals' },
+      { to: '/meetings',     icon: MessagesSquare, label: t.nav.meetings,       tourStep: 'meetings' },
+      { to: '/activity',     icon: Activity,       label: t.nav.aktivitaet,     tourStep: 'activity' },
+      { to: '/skill-library', icon: BookOpen,       label: t.nav.skillLibrary,   tourStep: 'skill-library' },
       { to: '/weekly-report',icon: BarChart3,      label: t.nav.weeklyReport,   tourStep: 'weekly-report' },
       { to: '/clipmart',     icon: Package,        label: 'CognitHub',          tourStep: 'cognithub' },
       { to: '/plugins',      icon: Package,        label: de ? 'Plugins' : 'Plugins', tourStep: 'plugins' },
@@ -213,14 +274,21 @@ export function Sidebar({ collapsed, onToggle, onSearchClick }: { collapsed: boo
           const isMoreSection = section.section === 'Mehr' || section.section === 'More';
           const setupHighlight = isSetupSection && !hasAgents;
 
+          const isCommandSection = section.section === 'Kommando' || section.section === 'Command';
+          const isIntelSection = section.section === 'Intelligenz' || section.section === 'Intelligence';
+
           // Section label colors
           const sectionColor = setupHighlight
             ? '#c5a059'
+            : isCommandSection
+            ? '#c5a059'
             : isSetupSection
             ? '#d4a373'
+            : isIntelSection
+            ? '#9b87c8'
             : isMoreSection
             ? '#6e5e48'
-            : '#c5a059'; // Operations
+            : '#8898aa'; // Operations
 
           return (
           <div key={section.section} style={{ marginBottom: '1.25rem' }}>

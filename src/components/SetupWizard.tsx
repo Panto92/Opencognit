@@ -1,4 +1,4 @@
-import { useState, useRef, Fragment as Frag } from 'react';
+import { useState, useEffect, useRef, Fragment as Frag } from 'react';
 import {
   Sparkles, FolderOpen, ChevronRight, ChevronLeft,
   Loader2, CheckCircle2, AlertCircle, Bot, Folder,
@@ -102,8 +102,16 @@ export function SetupWizard({ onClose, onDone }: { onClose: () => void; onDone: 
   const [step, setStep] = useState(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [description, setDescription] = useState('');
-  const [workDir, setWorkDir] = useState('');
+  const [workDir, setWorkDir] = useState(aktivesUnternehmen?.workDir || '');
   const [dirValid, setDirValid] = useState<boolean | null>(null);
+
+  // Sync workDir when aktivesUnternehmen is loaded
+  useEffect(() => {
+    if (aktivesUnternehmen?.workDir) {
+      setWorkDir(aktivesUnternehmen.workDir);
+    }
+  }, [aktivesUnternehmen]);
+
   const [plan, setPlan] = useState<BootstrapPlan | null>(null);
   const [planSource, setPlanSource] = useState<'ai' | 'default'>('ai');
   const [analyzing, setAnalyzing] = useState(false);
