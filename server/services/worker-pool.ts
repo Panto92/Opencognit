@@ -182,3 +182,31 @@ export function disableWorker(id: string): void {
     updatedAt: new Date().toISOString(),
   }).where(eq(workerNodes.id, id)).run();
 }
+
+// ── Queue-based run tracking (for jobs consumed from Redis/Memory queue) ─────
+
+export function getWorkerCapabilities(id: string): string[] {
+  const row = db.select({ capabilities: workerNodes.capabilities }).from(workerNodes).where(eq(workerNodes.id, id)).get();
+  return safeJson(row?.capabilities, [] as string[]);
+}
+
+export function recordQueueRunStart(workerId: string): boolean {
+  const worker = db.select().from(workerNodes).where(eq(workerNodes.id, workerId)).get();
+  if (!worker || worker.status !== 'online') return false;
+  if (worker.activeRuns >= worker.maxConcurrency) return false;
+
+  const now = new Date().toISOString();
+  db.update(workerNodes)
+    .set({ activeRuns: sql`${workerNodes.activeRuns} + 1`, updatedAt: now })
+    .where(eq(workerNodes.id, workerId)).run();
+  return true;
+}
+
+export function recordQueueRunEnd(workerId: string, success: boolean): void {
+  const now = new Date().toISOString();
+  db.update(workerNodes).set({
+    activeRuns: sql`MAX(${workerNodes.activeRuns} - 1, 0)`,
+    totalRuns: sql`${workerNodes.totalRuns} + 1`,
+    updatedAt: now,
+  }).where(eq(workerNodes.id, workerId)).run();
+}

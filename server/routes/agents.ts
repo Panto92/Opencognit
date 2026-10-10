@@ -689,6 +689,70 @@ router.get('/api/agents/:id/team-status', authMiddleware, requireResourceAccess(
   res.json({ team, unassigned });
 });
 
+// Reset agent memory — clears palace, embeddings, checkpoints, wakeups
+router.post('/api/agents/:id/reset-memory', authMiddleware, requireResourceAccess('agent'), async (req, res) => {
+  const expertId = req.params.id as string;
+  const unternehmenId = req.unternehmenId as string;
+
+  try {
+    // Find wings belonging to this agent
+    const wings = db.select({ id: palaceWings.id })
+      .from(palaceWings)
+      .where(and(eq(palaceWings.agentId, expertId), eq(palaceWings.companyId, unternehmenId)))
+      .all();
+    const wingIds = wings.map(w => w.id);
+
+    // Delete palace contents
+    if (wingIds.length > 0) {
+      db.delete(palaceDiary).where(inArray(palaceDiary.wingId, wingIds)).run();
+      db.delete(palaceDrawers).where(inArray(palaceDrawers.wingId, wingIds)).run();
+    }
+
+    db.delete(palaceSummaries)
+      .where(and(eq(palaceSummaries.agentId, expertId), eq(palaceSummaries.companyId, unternehmenId)))
+      .run();
+
+    db.delete(palaceKg)
+      .where(and(eq(palaceKg.companyId, unternehmenId), eq(palaceKg.createdBy, expertId)))
+      .run();
+
+    db.delete(memoryEmbeddings).where(eq(memoryEmbeddings.agentId, expertId)).run();
+    db.delete(taskCheckpoints).where(eq(taskCheckpoints.agentId, expertId)).run();
+    db.delete(workCyclesArchive).where(eq(workCyclesArchive.agentId, expertId)).run();
+    db.delete(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, expertId)).run();
+
+    // Reset agent state
+    db.update(agents)
+      .set({ soulVersion: null, status: 'idle', updatedAt: now() })
+      .where(eq(agents.id, expertId))
+      .run();
+
+    // Clear in-memory SOUL cache
+    const agentRow = db.select({ soulPath: agents.soulPath })
+      .from(agents)
+      .where(eq(agents.id, expertId))
+      .get();
+    if (agentRow?.soulPath) {
+      const { soulCache } = await import('../services/heartbeat/utils.js');
+      soulCache.delete(agentRow.soulPath);
+    }
+
+    logAktivitaet({
+      unternehmenId,
+      typ: 'agent_memory_reset',
+      titel: 'Agent memory reset',
+      details: `Cleared memory for agent ${expertId}`,
+      meta: { expertId },
+    });
+    broadcast('agent_memory_reset', { expertId, unternehmenId });
+
+    res.json({ ok: true, message: 'Agent memory cleared. The agent will rebuild context on next wakeup.' });
+  } catch (err: any) {
+    console.error('❌ reset-memory error:', err);
+    res.status(500).json({ ok: false, error: err.message || 'Failed to reset memory' });
+  }
+});
+
 // Stats — last-30-days overview for an agent's run history + tasks
 router.get('/api/agents/:id/stats', authMiddleware, requireResourceAccess('agent'), (req, res) => {
   const expertId = req.params.id as string;

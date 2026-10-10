@@ -55,6 +55,7 @@ const zCompany = z.object({
   name: z.string().min(1).max(120),
   beschreibung: z.string().max(1000).optional(),
   ziel: z.string().max(1000).optional(),
+  workDir: z.string().optional(),
 });
 
 // =============================================
@@ -84,12 +85,27 @@ router.get('/api/companies', (req, res) => {
 router.post('/api/companies', (req, res) => {
   const body = validate(zCompany, req, res);
   if (!body) return;
-  const { name, beschreibung, ziel } = body;
+  const { name, beschreibung, ziel, workDir } = body;
   const userId = (req as any).users?.userId;
 
   const id = uuid();
+
+  // Auto-generate absolute project workspace folder if not provided
+  let finalWorkDir = workDir || '';
+  if (!finalWorkDir) {
+    const parentDir = path.join(process.cwd(), 'data', 'company_workspaces');
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
+    finalWorkDir = path.join(parentDir, id);
+    if (!fs.existsSync(finalWorkDir)) {
+      fs.mkdirSync(finalWorkDir, { recursive: true });
+    }
+  }
+
   db.insert(companies).values({
     id, name, description: beschreibung, goal: ziel,
+    workDir: finalWorkDir,
     status: 'active',
     createdAt: now(),
     updatedAt: now(),
@@ -236,53 +252,92 @@ router.delete('/api/companies/:id', authMiddleware, requireCompanyAccess(['owner
 
 // Wipes all data INSIDE a company but keeps the company row itself.
 router.delete('/api/companies/:id/reset', authMiddleware, requireCompanyAccess(['owner', 'admin']), (req, res) => {
-  const id = req.params.id as string;
-  const company = db.select().from(companies).where(eq(companies.id, id)).get();
-  if (!company) return res.status(404).json({ error: 'Company not found' });
+  try {
+    const id = req.params.id as string;
+    const company = db.select().from(companies).where(eq(companies.id, id)).get();
+    if (!company) return res.status(404).json({ error: 'Company not found' });
 
-  const execRaw = (raw: string, params: unknown[] = []) => {
-    try { sqlite?.prepare(raw).run(...params); } catch { /* ignore missing tables on older DBs */ }
-  };
+    // Briefly disable FK checks — circular refs (agent.reportsTo → agent) and
+    // the ever-growing list of child tables make a strict ordered deletion
+    // impossible to maintain.
+    sqlite?.pragma('foreign_keys = OFF');
 
-  execRaw(`DELETE FROM ceo_decision_log WHERE unternehmen_id = ?`, [id]);
-  execRaw(`DELETE FROM expert_config_history WHERE expert_id IN (SELECT id FROM experten WHERE unternehmen_id = ?)`, [id]);
-  execRaw(`DELETE FROM experten_skills WHERE expert_id IN (SELECT id FROM experten WHERE unternehmen_id = ?)`, [id]);
-  execRaw(`DELETE FROM agent_permissions WHERE expert_id IN (SELECT id FROM experten WHERE unternehmen_id = ?)`, [id]);
-  execRaw(`DELETE FROM agent_gedaechtnis WHERE unternehmen_id = ?`, [id]);
-  execRaw(`DELETE FROM palace_wings WHERE unternehmen_id = ?`, [id]);
-  execRaw(`DELETE FROM palace_summaries WHERE unternehmen_id = ?`, [id]);
-  execRaw(`DELETE FROM palace_drawers WHERE expert_id IN (SELECT id FROM experten WHERE unternehmen_id = ?)`, [id]);
-  execRaw(`DELETE FROM palace_diary WHERE expert_id IN (SELECT id FROM experten WHERE unternehmen_id = ?)`, [id]);
-  execRaw(`DELETE FROM palace_kg WHERE unternehmen_id = ?`, [id]);
-  execRaw(`DELETE FROM budget_policies WHERE unternehmen_id = ?`, [id]);
-  execRaw(`DELETE FROM budget_incidents WHERE unternehmen_id = ?`, [id]);
-  execRaw(`DELETE FROM execution_workspaces WHERE unternehmen_id = ?`, [id]);
-  execRaw(`DELETE FROM openclaw_tokens WHERE unternehmen_id = ?`, [id]);
-  execRaw(`DELETE FROM agenten_meetings WHERE unternehmen_id = ?`, [id]);
-  execRaw(`DELETE FROM trace_ereignisse WHERE unternehmen_id = ?`, [id]);
-  execRaw(`DELETE FROM work_products WHERE unternehmen_id = ?`, [id]);
-  execRaw(`DELETE FROM agent_wakeup_requests WHERE unternehmen_id = ?`, [id]);
-  // issue_relations references tasks
-  execRaw(`DELETE FROM issue_relations WHERE quell_id IN (SELECT id FROM aufgaben WHERE unternehmen_id = ?) OR ziel_id IN (SELECT id FROM aufgaben WHERE unternehmen_id = ?)`, [id, id]);
-  // routine children before routines
-  execRaw(`DELETE FROM routine_ausfuehrung WHERE routine_id IN (SELECT id FROM routinen WHERE unternehmen_id = ?)`, [id]);
-  execRaw(`DELETE FROM routine_trigger WHERE routine_id IN (SELECT id FROM routinen WHERE unternehmen_id = ?)`, [id]);
-  db.delete(routines).where(eq(routines.companyId, id)).run();
-  db.delete(projects).where(eq(projects.companyId, id)).run();
-  db.delete(chatMessages).where(eq(chatMessages.companyId, id)).run();
-  db.delete(comments).where(eq(comments.companyId, id)).run();
-  db.delete(costEntries).where(eq(costEntries.companyId, id)).run();
-  db.delete(workCycles).where(eq(workCycles.companyId, id)).run();
-  db.delete(activityLog).where(eq(activityLog.companyId, id)).run();
-  db.delete(approvals).where(eq(approvals.companyId, id)).run();
-  db.delete(goals).where(eq(goals.companyId, id)).run();
-  db.delete(tasks).where(eq(tasks.companyId, id)).run();
-  execRaw(`DELETE FROM skills_library WHERE unternehmen_id = ?`, [id]);
-  execRaw(`DELETE FROM einstellungen WHERE unternehmen_id = ?`, [id]);
-  db.delete(agents).where(eq(agents.companyId, id)).run();
+    const execRaw = (raw: string, params: unknown[] = []) => {
+      try { sqlite?.prepare(raw).run(...params); } catch { /* ignore missing tables on older DBs */ }
+    };
 
-  console.log(`🗑️  Unternehmen ${company.name} (${id}) zurückgesetzt`);
-  res.json({ ok: true, name: company.name });
+    // --- Memory / Palace / Embeddings / Conflicts ---
+    execRaw(`DELETE FROM agent_gedaechtnis WHERE unternehmen_id = ?`, [id]);
+    execRaw(`DELETE FROM palace_wings WHERE unternehmen_id = ?`, [id]);
+    execRaw(`DELETE FROM palace_summaries WHERE unternehmen_id = ?`, [id]);
+    execRaw(`DELETE FROM palace_drawers WHERE expert_id IN (SELECT id FROM experten WHERE unternehmen_id = ?)`, [id]);
+    execRaw(`DELETE FROM palace_diary WHERE expert_id IN (SELECT id FROM experten WHERE unternehmen_id = ?)`, [id]);
+    execRaw(`DELETE FROM palace_kg WHERE unternehmen_id = ?`, [id]);
+    execRaw(`DELETE FROM memory_embeddings WHERE unternehmen_id = ?`, [id]);
+    execRaw(`DELETE FROM memory_conflicts WHERE unternehmen_id = ?`, [id]);
+
+    // --- Skills / Capabilities / Trust / Consensus / Contracts ---
+    execRaw(`DELETE FROM experten_skills WHERE expert_id IN (SELECT id FROM experten WHERE unternehmen_id = ?)`, [id]);
+    execRaw(`DELETE FROM skills_library WHERE unternehmen_id = ?`, [id]);
+    execRaw(`DELETE FROM learned_skills WHERE unternehmen_id = ?`, [id]);
+    execRaw(`DELETE FROM agent_capabilities WHERE unternehmen_id = ?`, [id]);
+    execRaw(`DELETE FROM agent_trust_scores WHERE unternehmen_id = ?`, [id]);
+    execRaw(`DELETE FROM agent_votes WHERE unternehmen_id = ?`, [id]);
+    execRaw(`DELETE FROM contract_net_bids WHERE unternehmen_id = ?`, [id]);
+
+    // --- Budget / Policies ---
+    execRaw(`DELETE FROM budget_policies WHERE unternehmen_id = ?`, [id]);
+    execRaw(`DELETE FROM budget_incidents WHERE unternehmen_id = ?`, [id]);
+
+    // --- Workspace / Execution / Nodes ---
+    execRaw(`DELETE FROM execution_workspaces WHERE unternehmen_id = ?`, [id]);
+    execRaw(`DELETE FROM work_products WHERE unternehmen_id = ?`, [id]);
+
+    // --- Routines / Checkpoints ---
+    execRaw(`DELETE FROM routine_ausfuehrung WHERE routine_id IN (SELECT id FROM routinen WHERE unternehmen_id = ?)`, [id]);
+    execRaw(`DELETE FROM routine_trigger WHERE routine_id IN (SELECT id FROM routinen WHERE unternehmen_id = ?)`, [id]);
+    db.delete(routines).where(eq(routines.companyId, id)).run();
+
+    // --- Meetings / Messages / Trace ---
+    execRaw(`DELETE FROM agenten_meetings WHERE unternehmen_id = ?`, [id]);
+    execRaw(`DELETE FROM agent_messages WHERE company_id = ?`, [id]);
+    execRaw(`DELETE FROM trace_ereignisse WHERE unternehmen_id = ?`, [id]);
+    db.delete(chatMessages).where(eq(chatMessages.companyId, id)).run();
+
+    // --- Tasks / Issues / WorkCycles ---
+    execRaw(`DELETE FROM issue_relations WHERE quell_id IN (SELECT id FROM aufgaben WHERE unternehmen_id = ?) OR ziel_id IN (SELECT id FROM aufgaben WHERE unternehmen_id = ?)`, [id, id]);
+    execRaw(`DELETE FROM agent_wakeup_requests WHERE unternehmen_id = ?`, [id]);
+    execRaw(`DELETE FROM task_checkpoints WHERE company_id = ?`, [id]);
+    db.delete(comments).where(eq(comments.companyId, id)).run();
+    db.delete(approvals).where(eq(approvals.companyId, id)).run();
+    db.delete(goals).where(eq(goals.companyId, id)).run();
+    db.delete(workCycles).where(eq(workCycles.companyId, id)).run();
+    execRaw(`DELETE FROM arbeitszyklen_archiv WHERE unternehmen_id = ?`, [id]);
+    db.delete(tasks).where(eq(tasks.companyId, id)).run();
+
+    // --- Projects / Costs / Activity / Settings ---
+    db.delete(projects).where(eq(projects.companyId, id)).run();
+    db.delete(costEntries).where(eq(costEntries.companyId, id)).run();
+    db.delete(activityLog).where(eq(activityLog.companyId, id)).run();
+    execRaw(`DELETE FROM einstellungen WHERE unternehmen_id = ?`, [id]);
+    execRaw(`DELETE FROM openclaw_tokens WHERE unternehmen_id = ?`, [id]);
+    execRaw(`DELETE FROM ceo_decision_log WHERE unternehmen_id = ?`, [id]);
+    execRaw(`DELETE FROM expert_config_history WHERE expert_id IN (SELECT id FROM experten WHERE unternehmen_id = ?)`, [id]);
+
+    // --- Agents (delete last because many tables reference it) ---
+    execRaw(`DELETE FROM agent_permissions WHERE expert_id IN (SELECT id FROM experten WHERE unternehmen_id = ?)`, [id]);
+    db.delete(agents).where(eq(agents.companyId, id)).run();
+
+    // Re-enable FK checks
+    sqlite?.pragma('foreign_keys = ON');
+
+    console.log(`🗑️  Unternehmen ${company.name} (${id}) zurückgesetzt`);
+    res.json({ ok: true, name: company.name });
+  } catch (err: any) {
+    sqlite?.pragma('foreign_keys = ON');
+    console.error('❌ Company Reset fehlgeschlagen:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // =============================================

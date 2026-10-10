@@ -25,6 +25,8 @@ import { wakeupService } from './services/wakeup.js';
 import { skillsService } from './services/skills.js';
 import { cleanupService } from './services/cleanup.js';
 import { backupService } from './services/backup.js';
+import { createJobQueue } from './services/job-queue.js';
+import { startQueueWorker, stopQueueWorker } from './services/job-queue-worker.js';
 import { initializePluginSystem, shutdownPluginSystem, pluginManager } from './plugins/index.js';
 import { discordBotService } from './services/discord-bot.js';
 import { runClaudeDirectChat } from './adapters/claude-code.js';
@@ -43,8 +45,9 @@ import { appEvents } from './events.js';
 import { autoSaveInsights, loadRelevantMemory } from './services/memory-auto.js';
 import { nodeManager } from './services/nodeManager.js';
 import webhooksRouter from './routes/webhooks.js';
+import outgoingWebhooksRouter from './routes/outgoing-webhooks.js';
 import semanticMemoryRouter from './routes/semantic-memory.js';
-import skillsRouter from './routes/skills.js';
+import skillsRouter, { mapSkillToDe } from './routes/skills.js';
 import routinesRouter from './routes/routines.js';
 import projectsRouter from './routes/projects.js';
 import tasksRouter from './routes/tasks.js';
@@ -59,9 +62,11 @@ import companiesFinanceRouter from './routes/companies-finance.js';
 import settingsRouter from './routes/settings.js';
 import filesystemRouter from './routes/filesystem.js';
 import workersRouter from './routes/workers.js';
+import { startWebhookDispatcher } from './services/outgoing-webhooks.js';
 import agentsSoulRouter from './routes/agents-soul.js';
 import onboardingRouter from './routes/onboarding.js';
 import a2aMessagesRouter from './routes/a2a-messages.js';
+import agentChatRouter from './routes/agent-chat.js';
 import { logAktivitaet } from './services/activity-log.js';
 import {
   authMiddleware,
@@ -72,6 +77,8 @@ import {
 } from './middleware/auth.js';
 import { urlRewrite, responseAlias } from './middleware/compat.js';
 import { apiRateLimit } from './middleware/rate-limit.js';
+import { traceMiddleware } from './middleware/trace.js';
+import { runStartupChecks } from './services/env-check.js';
 // Re-export for any external module still importing from './index.js'
 export { authMiddleware, requireCompanyAccess, requireResourceAccess };
 
@@ -87,6 +94,9 @@ if (!process.env.JWT_SECRET) {
   }
 }
 const JWT_SECRET = process.env.JWT_SECRET as string;
+
+// ── Startup environment validation ───────────────────────────────────────────
+runStartupChecks();
 
 // ── Zod schemas for input validation ─────────────────────────────────────────
 const zCompany = z.object({
@@ -135,6 +145,9 @@ const app = express();
 // Compatibility middleware: DE → EN URL rewrites + EN → DE response aliasing
 app.use(urlRewrite);
 app.use(responseAlias);
+
+// Request tracing — attaches X-Request-ID and logs latency
+app.use(traceMiddleware);
 
 const PORT = parseInt(process.env.PORT || '3201');
 const server = http.createServer(app);
@@ -255,6 +268,7 @@ app.get('/.well-known/appspecific/com.chrome.devtools.json', (_req: any, res: an
 
 // Webhooks need to bypass the global auth (they verify their own signatures).
 app.use('/api/webhooks', webhooksRouter);
+app.use('/', outgoingWebhooksRouter);
 
 // All other routers are mounted AFTER the global auth middleware below
 // so they participate in the same auth/rate-limit chain as the inline /api
@@ -331,6 +345,7 @@ app.use('/', workersRouter);
 app.use('/', agentsSoulRouter);
 app.use('/', onboardingRouter);
 app.use('/', a2aMessagesRouter);
+app.use('/', agentChatRouter);
 
 // =============================================
 // UNTERNEHMEN — moved to ./routes/companies.ts
@@ -3266,10 +3281,18 @@ app.get('/api/companies/:unternehmenId/agent-quality', authMiddleware, requireCo
 // =============================================
 app.get('/api/ollama/models', authMiddleware, async (req, res) => {
   const baseUrl = (req.query.baseUrl as string) || 'http://127.0.0.1:11434';
+  const apiKey = (req.query.apiKey as string) || '';
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
-    const r = await fetch(`${baseUrl}/api/tags`, { signal: controller.signal });
+    const headers: Record<string, string> = {};
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    const r = await fetch(`${baseUrl}/api/tags`, { 
+      headers,
+      signal: controller.signal 
+    });
     clearTimeout(timeout);
     if (!r.ok) return res.status(502).json({ error: 'Ollama unreachable' });
     const data = await r.json() as any;
@@ -4284,9 +4307,25 @@ async function start() {
   backupService.start();
   console.log('💾 Backup-Service gestartet (täglich)\n');
 
-  // Start wakeup processor — verarbeitet pending Wakeups alle 10s
-  wakeupProcessorInterval = setInterval(processAllPendingWakeups, 10000);
-  console.log('🔄 Wakeup-Processor gestartet (verarbeitet alle 10s)\n');
+  // Initialize job queue and worker for push-based heartbeat execution
+  try {
+    const queue = await createJobQueue();
+    await startQueueWorker(queue);
+  } catch (e: any) {
+    console.warn('⚠️ Job queue startup failed:', e.message);
+  }
+
+  // Start outgoing webhook dispatcher
+  try {
+    startWebhookDispatcher();
+  } catch (e: any) {
+    console.warn('⚠️ Webhook dispatcher startup failed:', e.message);
+  }
+
+  // Start wakeup processor — safety-net poller for missed wakeups (was 10s, now 60s)
+  // The job queue worker handles most wakeups immediately; this catches edge cases.
+  wakeupProcessorInterval = setInterval(processAllPendingWakeups, 60000);
+  console.log('🔄 Wakeup-Processor gestartet (Safety-Net alle 60s)\n');
 
   // Start periodic zyklus checker — erstellt Wakeups basierend auf zyklusIntervallSek alle 30s
   zyklusCheckerInterval = setInterval(checkPeriodicWakeups, 30000);
@@ -4384,17 +4423,28 @@ async function start() {
 // Graceful shutdown
 async function shutdown() {
   console.log('\n🛑 OpenCognit Server fährt herunter...');
-  
-  // Emergency timeout: Force exit if cleanup takes too long
-  setTimeout(() => {
-    console.error('⚠️ Shutdown Timeout erreicht. Forciere Beendung...');
-    process.exit(1);
-  }, 2000).unref();
 
-  messagingService.stopPolling();
+  // Emergency timeout: Force exit if graceful shutdown takes too long
+  // 30s allows active heartbeats (5m max) to finish their current step
+  const forceExitTimer = setTimeout(() => {
+    console.error('⚠️ Shutdown Timeout (30s) erreicht. Forciere Beendung...');
+    process.exit(1);
+  }, 30_000);
+  forceExitTimer.unref();
+
+  // 1. Stop accepting new work
   cronService.stop();
   cleanupService.stop();
   backupService.stop();
+  messagingService.stopPolling();
+
+  // 2. Stop accepting new HTTP requests
+  console.log('🔒 Closing HTTP server (draining connections)...');
+  server.close(() => {
+    console.log('🔒 HTTP server closed');
+  });
+
+  // 3. Stop background processors
   if (wakeupProcessorInterval) {
     clearInterval(wakeupProcessorInterval);
     wakeupProcessorInterval = null;
@@ -4403,6 +4453,23 @@ async function shutdown() {
     clearInterval(zyklusCheckerInterval);
     zyklusCheckerInterval = null;
   }
+
+  // 4. Stop webhook dispatcher (wait for pending sends)
+  try {
+    const { stopWebhookDispatcher } = await import('./services/outgoing-webhooks.js');
+    await stopWebhookDispatcher();
+  } catch (e: any) {
+    console.warn('⚠️ Webhook dispatcher shutdown error:', e.message);
+  }
+
+  // 5. Stop job worker (wait for active jobs)
+  try {
+    await stopQueueWorker();
+  } catch (e: any) {
+    console.warn('⚠️ Job worker shutdown error:', e.message);
+  }
+
+  // 6. Stop external services
   try {
     await discordBotService.shutdown();
   } catch (e: any) {
@@ -4414,18 +4481,22 @@ async function shutdown() {
     console.error('Fehler beim Herunterfahren des Plugin-Systems:', error);
   }
 
-  console.log('Schließe Sockets und Datenbank...');
+  // 7. Close WebSocket connections
+  console.log('🔌 Closing WebSocket connections...');
   wss.clients.forEach(client => client.close());
   wss.close();
-  server.close(() => {
-    if (sqlite) {
-      try {
-        sqlite.close();
-      } catch (e) {}
-    }
-    console.log('✅ Server erfolgreich beendet.');
-    process.exit(0);
-  });
+
+  // 8. Close database
+  console.log('💾 Closing database...');
+  if (sqlite) {
+    try {
+      sqlite.close();
+    } catch (e) {}
+  }
+
+  clearTimeout(forceExitTimer);
+  console.log('✅ Server erfolgreich beendet.');
+  process.exit(0);
 }
 
 process.on('SIGTERM', shutdown);

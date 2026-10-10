@@ -4,6 +4,7 @@
 import { db } from '../db/client.js';
 import { agentWakeupRequests, workCycles, agents, tasks } from '../db/schema.js';
 import { eq, and, sql } from 'drizzle-orm';
+import { isQueueInitialized, getJobQueue } from './job-queue.js';
 
 export type WakeupSource = 'timer' | 'assignment' | 'on_demand' | 'automation';
 export type WakeupTriggerDetail = 'manual' | 'ping' | 'callback' | 'system' | 'cron' | 'issue_assigned' | 'issue_comment' | 'mention';
@@ -130,6 +131,36 @@ class WakeupServiceImpl implements WakeupService {
     });
 
     console.log(`⏰ Wakeup queued for expert ${expertId}: ${options.reason} (source: ${options.source})`);
+
+    // Also enqueue to job queue for immediate processing (no polling delay)
+    try {
+      if (isQueueInitialized()) {
+        // Determine required capability from agent connection type
+        let requiredCapability: string | undefined;
+        try {
+          const agentRow = db.select({ connectionType: agents.connectionType })
+            .from(agents)
+            .where(eq(agents.id, expertId))
+            .get();
+          requiredCapability = agentRow?.connectionType || undefined;
+        } catch { /* ignore */ }
+
+        const queue = getJobQueue();
+        await queue.enqueue({
+          type: 'heartbeat',
+          agentId: expertId,
+          companyId: unternehmenId,
+          payload: { wakeupId, ...options.payload },
+          priority: options.source === 'assignment' ? 1 : options.source === 'timer' ? 2 : 3,
+          maxAttempts: 3,
+          requiredCapability,
+        });
+      }
+    } catch (e: any) {
+      console.warn(`⚠️ Failed to enqueue wakeup job for ${expertId}:`, e.message);
+      // Fallback: SQLite wakeup will be picked up by safety-net poller
+    }
+
     return wakeupId;
   }
 

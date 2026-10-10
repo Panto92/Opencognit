@@ -18,17 +18,46 @@ export class OllamaAdapter implements ExpertAdapter {
     const timeout = options.timeoutMs || 180000; // 3min for local models
 
     let model = options.globalDefaultModel || 'mistral';
+    let baseUrl = 'http://localhost:11434';
+    let apiKey = '';
+
+    // Load defaults from DB settings
+    try {
+      const { db } = await import('../db/client.js');
+      const { settings } = await import('../db/schema.js');
+      const { eq } = await import('drizzle-orm');
+      const { decryptSetting } = await import('../utils/crypto.js');
+
+      const urlSetting = db.select().from(settings).where(eq(settings.key, 'ollama_base_url')).get();
+      if (urlSetting?.value) {
+        baseUrl = decryptSetting('ollama_base_url', urlSetting.value);
+      }
+
+      const keySetting = db.select().from(settings).where(eq(settings.key, 'ollama_api_key')).get();
+      if (keySetting?.value) {
+        apiKey = decryptSetting('ollama_api_key', keySetting.value);
+      }
+    } catch (dbErr) {
+      console.warn('[OllamaAdapter] Could not load default settings from DB:', dbErr);
+    }
+
+    // Support backward compatibility (options.apiKey holding base URL)
+    if (options.apiKey && (options.apiKey.startsWith('http://') || options.apiKey.startsWith('https://'))) {
+      baseUrl = options.apiKey;
+    }
+
+    // Parse overrides from connectionConfig
     try {
       if (options.connectionConfig) {
         const config = JSON.parse(options.connectionConfig);
         if (config.model) model = config.model;
+        if (config.baseUrl) baseUrl = config.baseUrl;
+        if (config.apiKey) apiKey = config.apiKey;
       }
     } catch {
       // Ignore JSON parse errors
     }
 
-    // For Ollama, apiKey holds the base URL
-    const baseUrl = options.apiKey || 'http://localhost:11434';
     const endpoint = baseUrl.endsWith('/') ? `${baseUrl}api/chat` : `${baseUrl}/api/chat`;
 
     const systemPrompt = buildAgentSystemPrompt(options);
@@ -51,9 +80,14 @@ export class OllamaAdapter implements ExpertAdapter {
             const controller = new AbortController();
             const id = setTimeout(() => controller.abort(), timeout);
 
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (apiKey) {
+              headers['Authorization'] = `Bearer ${apiKey}`;
+            }
+
             const res = await fetch(endpoint, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers,
               body: JSON.stringify({
                 model,
                 messages,

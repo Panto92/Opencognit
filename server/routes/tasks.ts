@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { eq, and, or, desc, sql, inArray } from 'drizzle-orm';
 
 import { db } from '../db/client.js';
+import { appEvents } from '../events.js';
 import {
   tasks,
   comments,
@@ -116,6 +117,7 @@ router.post('/api/companies/:unternehmenId/tasks', requireCompanyAccess(), (req,
 
   const aufgabe = db.select().from(tasks).where(eq(tasks.id, id)).get();
   logAktivitaet(unternehmenId, 'board', 'board', 'Board', `hat Aufgabe „${titel}" erstellt`, 'aufgabe', id);
+  appEvents.emit('broadcast', { type: 'task.created', companyId: unternehmenId, data: { taskId: id, title: titel, assignedTo: zugewiesenAn } });
   // Wake CEO if task has no assignee yet
   if (!zugewiesenAn) scheduler.triggerCEOForCompany(unternehmenId);
   res.status(201).json(aufgabe);

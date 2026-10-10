@@ -75,4 +75,105 @@ router.post('/api/worker/submit', workerAuthMiddleware, async (req: any, res) =>
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Queue-based claim (for remote workers without direct Redis access) ───────
+
+router.get('/api/worker/queue-claim', workerAuthMiddleware, async (req: any, res) => {
+  try {
+    const { getJobQueue } = await import('../services/job-queue.js');
+    const { recordQueueRunStart, recordQueueRunEnd } = await import('../services/worker-pool.js');
+    const queue = getJobQueue();
+
+    // Non-blocking peek at the queue
+    const job = await queue.tryDequeue();
+    if (!job) {
+      return res.json({ claim: null });
+    }
+
+    // Verify worker can execute this job
+    const { getWorkerCapabilities } = await import('../services/worker-pool.js');
+    const caps = getWorkerCapabilities(req.workerId);
+    const canExecute = !job.requiredCapability || caps.includes('*') || caps.includes(job.requiredCapability);
+
+    if (!canExecute) {
+      // Put it back — another worker should handle it
+      await queue.enqueue({
+        type: job.type,
+        agentId: job.agentId,
+        companyId: job.companyId,
+        payload: job.payload,
+        priority: job.priority,
+        maxAttempts: job.maxAttempts,
+        requiredCapability: job.requiredCapability,
+      });
+      return res.json({ claim: null, reason: 'capability_mismatch' });
+    }
+
+    // Record that this worker took a queue job
+    const ok = recordQueueRunStart(req.workerId);
+    if (!ok) {
+      // Worker at max concurrency — put job back
+      await queue.enqueue({
+        type: job.type,
+        agentId: job.agentId,
+        companyId: job.companyId,
+        payload: job.payload,
+        priority: job.priority,
+        maxAttempts: job.maxAttempts,
+        requiredCapability: job.requiredCapability,
+      });
+      return res.json({ claim: null, reason: 'at_capacity' });
+    }
+
+    res.json({
+      claim: {
+        jobId: job.id,
+        agentId: job.agentId,
+        companyId: job.companyId,
+        type: job.type,
+        payload: job.payload,
+        requiredCapability: job.requiredCapability,
+      },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/api/worker/queue-complete', workerAuthMiddleware, async (req: any, res) => {
+  try {
+    const { jobId, success } = req.body;
+    if (!jobId) return res.status(400).json({ error: 'jobId required' });
+
+    const { getJobQueue } = await import('../services/job-queue.js');
+    const { recordQueueRunEnd } = await import('../services/worker-pool.js');
+    const queue = getJobQueue();
+
+    await queue.complete(jobId);
+    recordQueueRunEnd(req.workerId, !!success);
+
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Worker details ───────────────────────────────────────────────────────────
+
+router.get('/api/workers/:id', authMiddleware, async (req, res) => {
+  try {
+    const { listWorkers } = await import('../services/worker-pool.js');
+    const workers = listWorkers();
+    const worker = workers.find((w: any) => w.id === req.params.id);
+    if (!worker) return res.status(404).json({ error: 'worker not found' });
+    res.json(worker);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+router.get('/api/workers/:id/capabilities', authMiddleware, async (req, res) => {
+  try {
+    const { getWorkerCapabilities } = await import('../services/worker-pool.js');
+    res.json({ capabilities: getWorkerCapabilities(req.params.id) });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 export default router;

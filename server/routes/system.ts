@@ -31,6 +31,8 @@ import {
 } from '../db/schema.js';
 import { backupService } from '../services/backup.js';
 import { cleanupService } from '../services/cleanup.js';
+import { metricsService } from '../services/metrics.js';
+import { isQueueInitialized, getJobQueue } from '../services/job-queue.js';
 import { getCliPath, getAllCliPaths, setCliPath } from '../adapters/cli-paths.js';
 import { encryptSetting } from '../utils/crypto.js';
 import { authMiddleware, requireCompanyAccess } from '../middleware/auth.js';
@@ -42,8 +44,59 @@ const now = () => new Date().toISOString();
 // HEALTH & STATUS
 // =============================================
 
-router.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', version: '0.9.0', name: 'OpenCognit' });
+router.get('/api/health', async (_req, res) => {
+  // Basic DB connectivity check
+  let dbHealthy = false;
+  try {
+    db.select({ value: count(companies.id) }).from(companies).get();
+    dbHealthy = true;
+  } catch {
+    dbHealthy = false;
+  }
+
+  // Queue status
+  let queueStats = { pending: 0, processing: 0, initialized: false };
+  try {
+    if (isQueueInitialized()) {
+      const stats = await getJobQueue().stats();
+      queueStats = { ...stats, initialized: true };
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const mem = process.memoryUsage();
+
+  res.json({
+    status: dbHealthy ? 'ok' : 'degraded',
+    version: '0.9.0',
+    name: 'OpenCognit',
+    uptimeSeconds: Math.floor(process.uptime()),
+    database: { healthy: dbHealthy, type: sqlite ? 'sqlite' : 'postgres' },
+    queue: queueStats,
+    memory: {
+      rssMb: Math.round(mem.rss / 1024 / 1024),
+      heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
+      heapTotalMb: Math.round(mem.heapTotal / 1024 / 1024),
+      externalMb: Math.round((mem.external || 0) / 1024 / 1024),
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Kubernetes/Docker liveness probe — process is alive
+router.get('/api/health/live', (_req, res) => {
+  res.status(200).json({ status: 'alive', uptimeSeconds: Math.floor(process.uptime()) });
+});
+
+// Kubernetes/Docker readiness probe — can accept traffic
+router.get('/api/health/ready', async (_req, res) => {
+  try {
+    db.select({ value: count(companies.id) }).from(companies).get();
+    res.status(200).json({ status: 'ready', timestamp: new Date().toISOString() });
+  } catch {
+    res.status(503).json({ status: 'not_ready', reason: 'database_unavailable' });
+  }
 });
 
 // Agent health monitor — surfaces stuck/looping/error agents
@@ -120,51 +173,158 @@ router.get('/api/system/status', (_req, res) => {
   res.json({ needsSetup: unternehmenCount === 0, brauchtRegistrierung: benutzerCount === 0 });
 });
 
+// Runtime telemetry — request metrics, queue depth, agent summary
+router.get('/api/system/telemetry', authMiddleware, async (_req, res) => {
+  try {
+    const since1h = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    // Agent summary
+    const agentSummary = db.all(
+      sql`SELECT status, COUNT(*) as cnt FROM experten GROUP BY status`,
+    ) as Array<{ status: string; cnt: number }>;
+
+    // Recent heartbeat runs (last 24h)
+    const runSummary = db.all(
+      sql`SELECT status, COUNT(*) as cnt FROM arbeitszyklen
+          WHERE erstellt_am >= ${since24h} GROUP BY status`,
+    ) as Array<{ status: string; cnt: number }>;
+
+    // Cost summary (last 24h)
+    const costSummary = db.all(
+      sql`SELECT SUM(kosten_cent) as totalCent, COUNT(*) as cnt FROM kosten_eintraege
+          WHERE erstellt_am >= ${since24h}`,
+    ) as Array<{ totalCent: number; cnt: number }>;
+
+    // Task summary
+    const taskSummary = db.all(
+      sql`SELECT status, COUNT(*) as cnt FROM aufgaben GROUP BY status`,
+    ) as Array<{ status: string; cnt: number }>;
+
+    // Wakeup backlog
+    const wakeupBacklog = db.select({ value: count() })
+      .from(sql`agent_wakeup_requests`)
+      .where(sql`status = 'queued'`)
+      .get()?.value ?? 0;
+
+    // Runtime request metrics
+    const requestMetrics = metricsService.getSnapshot(60 * 60 * 1000);
+
+    // Queue metrics
+    let queueMetrics = { pending: 0, processing: 0, initialized: false };
+    try {
+      if (isQueueInitialized()) {
+        const stats = await getJobQueue().stats();
+        queueMetrics = { ...stats, initialized: true };
+      }
+    } catch {
+      /* ignore */
+    }
+
+    res.json({
+      agents: Object.fromEntries(agentSummary.map((a) => [a.status, a.cnt])),
+      tasks: Object.fromEntries(taskSummary.map((t) => [t.status, t.cnt])),
+      runs24h: Object.fromEntries(runSummary.map((r) => [r.status, r.cnt])),
+      costs24h: {
+        totalCent: costSummary[0]?.totalCent ?? 0,
+        count: costSummary[0]?.cnt ?? 0,
+      },
+      wakeupBacklog,
+      requests: requestMetrics,
+      queue: queueMetrics,
+      uptimeSeconds: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // =============================================
 // FACTORY RESET
 // =============================================
 
 router.delete('/api/system/factory-reset', authMiddleware, requireCompanyAccess(['owner', 'admin']), (_req, res) => {
-  const execAll = (raw: string) => { try { sqlite?.prepare(raw).run(); } catch { /* ignore */ } };
-  // Delete leaf tables first (FK order)
-  execAll(`DELETE FROM ceo_decision_log`);
-  execAll(`DELETE FROM expert_config_history`);
-  execAll(`DELETE FROM experten_skills`);
-  execAll(`DELETE FROM agent_permissions`);
-  execAll(`DELETE FROM agent_gedaechtnis`);
-  execAll(`DELETE FROM palace_wings`);
-  execAll(`DELETE FROM palace_drawers`);
-  execAll(`DELETE FROM palace_diary`);
-  execAll(`DELETE FROM palace_kg`);
-  execAll(`DELETE FROM palace_summaries`);
-  execAll(`DELETE FROM budget_policies`);
-  execAll(`DELETE FROM budget_incidents`);
-  execAll(`DELETE FROM execution_workspaces`);
-  execAll(`DELETE FROM openclaw_tokens`);
-  execAll(`DELETE FROM agenten_meetings`);
-  execAll(`DELETE FROM trace_ereignisse`);
-  execAll(`DELETE FROM work_products`);
-  execAll(`DELETE FROM agent_wakeup_requests`);
-  execAll(`DELETE FROM issue_relations`);
-  execAll(`DELETE FROM routine_ausfuehrung`);
-  execAll(`DELETE FROM routine_trigger`);
-  db.delete(routines).run();
-  db.delete(projects).run();
-  db.delete(chatMessages).run();
-  db.delete(comments).run();
-  db.delete(costEntries).run();
-  db.delete(workCycles).run();
-  db.delete(activityLog).run();
-  db.delete(approvals).run();
-  db.delete(goals).run();
-  db.delete(tasks).run();
-  execAll(`DELETE FROM skills_library`);
-  execAll(`DELETE FROM einstellungen`);
-  db.delete(agents).run();
-  db.delete(companies).run();
+  try {
+    // Disable FK checks so order doesn't matter and orphaned rows don't block deletion
+    sqlite?.pragma('foreign_keys = OFF');
 
-  console.log('🔴 Factory Reset ausgeführt');
-  res.json({ ok: true });
+    const execAll = (raw: string) => { try { sqlite?.prepare(raw).run(); } catch { /* ignore */ } };
+
+    // --- Memory / Palace ---
+    execAll(`DELETE FROM palace_wings`);
+    execAll(`DELETE FROM palace_drawers`);
+    execAll(`DELETE FROM palace_diary`);
+    execAll(`DELETE FROM palace_kg`);
+    execAll(`DELETE FROM palace_summaries`);
+    execAll(`DELETE FROM agent_gedaechtnis`);
+    execAll(`DELETE FROM memory_embeddings`);
+    execAll(`DELETE FROM memory_conflicts`);
+
+    // --- Skills / Capabilities ---
+    execAll(`DELETE FROM experten_skills`);
+    execAll(`DELETE FROM skills_library`);
+    execAll(`DELETE FROM learned_skills`);
+    execAll(`DELETE FROM agent_capabilities`);
+
+    // --- Trust / Consensus / Contracts ---
+    execAll(`DELETE FROM agent_trust_scores`);
+    execAll(`DELETE FROM agent_votes`);
+    execAll(`DELETE FROM contract_net_bids`);
+
+    // --- Budget / Policies ---
+    execAll(`DELETE FROM budget_policies`);
+    execAll(`DELETE FROM budget_incidents`);
+
+    // --- Workspace / Execution ---
+    execAll(`DELETE FROM execution_workspaces`);
+    execAll(`DELETE FROM work_products`);
+    execAll(`DELETE FROM worker_nodes`);
+
+    // --- Routines / Checkpoints ---
+    execAll(`DELETE FROM routine_ausfuehrung`);
+    execAll(`DELETE FROM routine_trigger`);
+    execAll(`DELETE FROM task_checkpoints`);
+    db.delete(routines).run();
+
+    // --- Meetings / Communications ---
+    execAll(`DELETE FROM agenten_meetings`);
+    execAll(`DELETE FROM agent_messages`);
+    execAll(`DELETE FROM trace_ereignisse`);
+    db.delete(chatMessages).run();
+
+    // --- Tasks / Issues ---
+    execAll(`DELETE FROM issue_relations`);
+    execAll(`DELETE FROM agent_wakeup_requests`);
+    db.delete(comments).run();
+    db.delete(approvals).run();
+    db.delete(goals).run();
+    db.delete(tasks).run();
+    db.delete(workCycles).run();
+    execAll(`DELETE FROM arbeitszyklen_archiv`);
+
+    // --- Projects / Companies / Memberships ---
+    execAll(`DELETE FROM company_memberships`);
+    execAll(`DELETE FROM openclaw_tokens`);
+    execAll(`DELETE FROM ceo_decision_log`);
+    execAll(`DELETE FROM expert_config_history`);
+    execAll(`DELETE FROM einstellungen`);
+    db.delete(projects).run();
+    db.delete(costEntries).run();
+    db.delete(activityLog).run();
+    db.delete(agents).run();
+    db.delete(companies).run();
+
+    // Re-enable FK checks
+    sqlite?.pragma('foreign_keys = ON');
+
+    console.log('🔴 Factory Reset ausgeführt');
+    res.json({ ok: true });
+  } catch (err: any) {
+    sqlite?.pragma('foreign_keys = ON');
+    console.error('❌ Factory Reset fehlgeschlagen:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // =============================================

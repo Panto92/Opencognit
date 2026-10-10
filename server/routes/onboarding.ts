@@ -124,6 +124,50 @@ router.post('/api/onboarding/generate-team', authMiddleware, async (req, res) =>
   }
 });
 
+// ─── API Key Validation ──────────────────────────────────────────────────────
+
+router.post('/api/onboarding/validate-key', authMiddleware, async (req, res) => {
+  const { key, provider } = req.body;
+  if (!key?.trim() || !provider) return res.status(400).json({ valid: false, error: 'key and provider required' });
+
+  try {
+    if (provider === 'openrouter') {
+      const r = await fetch('https://openrouter.ai/api/v1/auth/key', {
+        headers: { Authorization: `Bearer ${key.trim()}` },
+        signal: AbortSignal.timeout(8000),
+      });
+      return res.json({ valid: r.status === 200 });
+    }
+
+    if (provider === 'anthropic') {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': key.trim(),
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ model: 'claude-3-5-haiku-20241022', max_tokens: 1, messages: [{ role: 'user', content: 'Hi' }] }),
+        signal: AbortSignal.timeout(8000),
+      });
+      // 401 = invalid key; 400 with validation error could also mean invalid key format
+      return res.json({ valid: r.status !== 401 && r.status !== 403 });
+    }
+
+    if (provider === 'openai') {
+      const r = await fetch('https://api.openai.com/v1/models?limit=1', {
+        headers: { Authorization: `Bearer ${key.trim()}` },
+        signal: AbortSignal.timeout(8000),
+      });
+      return res.json({ valid: r.status === 200 });
+    }
+
+    return res.json({ valid: false, error: 'unsupported provider' });
+  } catch (e: any) {
+    return res.json({ valid: false, error: e.message });
+  }
+});
+
 function buildDefaultTeam(description: string, language: string): any {
   const lower = description.toLowerCase();
   const isDE = language === 'de';

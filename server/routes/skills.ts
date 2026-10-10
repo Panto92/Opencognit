@@ -38,7 +38,7 @@ import {
 const router = Router();
 const now = () => new Date().toISOString();
 
-function mapSkillToDe(skill: any) {
+export function mapSkillToDe(skill: any) {
   return {
     id: skill.id,
     unternehmenId: skill.companyId,
