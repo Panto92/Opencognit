@@ -17,6 +17,7 @@ import { translateActivity } from '../utils/activityTranslator';
 import { useToast } from './ToastProvider';
 import { Select } from './Select';
 import { GlassAgentPanel } from './GlassAgentPanel';
+import { AgentTerminal } from './AgentTerminal';
 import { 
   RunActivityChart, PriorityChart, StatusChart, SuccessRateChart, ChartCard 
 } from './AgentCharts';
@@ -244,7 +245,7 @@ const statusColor: Record<string, string> = {
   paused: 'var(--color-warning)', error: 'var(--color-error)', terminated: '#6b7280',
 };
 
-type Tab = 'überblick' | 'monitor' | 'glass' | 'aktivitaet' | 'einstellungen' | 'skills' | 'soul';
+type Tab = 'überblick' | 'monitor' | 'glass' | 'aktivitaet' | 'einstellungen' | 'skills' | 'soul' | 'terminal';
 
 // ─── Skill Radar Chart ────────────────────────────────────────────────────────
 function SkillRadarChart({ skills }: { skills: Array<{ name: string; konfidenz: number }> }) {
@@ -1219,6 +1220,7 @@ export function ExpertChatDrawer({ expert: initialExpert, onClose, onDeleted, on
               { id: 'einstellungen', label: de ? 'Einstellungen' : 'Settings', icon: Settings },
               { id: 'skills', label: de ? 'Skills' : 'Skills', icon: Wrench },
               { id: 'soul', label: 'SOUL', icon: Sparkles },
+              { id: 'terminal', label: 'Terminal', icon: Terminal },
             ] as const).map(tab => (
               <button
                 key={tab.id}
@@ -2699,6 +2701,11 @@ export function ExpertChatDrawer({ expert: initialExpert, onClose, onDeleted, on
                   <Save size={16} />
                   {savingSoul ? (de ? 'Speichern...' : 'Saving...') : soulSaved ? (de ? '✓ SOUL gespeichert' : '✓ SOUL saved') : (de ? 'SOUL speichern' : 'Save SOUL')}
                 </button>
+              </div>
+            )}
+            {activeTab === 'terminal' && (
+              <div style={{ padding: 28 }}>
+                <AgentTerminal agentId={expert.id} agentName={expert.name} de={de} />
               </div>
             )}
             {/* ════════════════════════════════════════════════════════════════ */}

@@ -26,7 +26,7 @@ const sendMessageSchema = z.object({
 router.post('/api/agents/:id/messages', authMiddleware, requireResourceAccess('agent'), async (req, res) => {
   try {
     const senderId = req.params.id as string;
-    const unternehmenId = ((req as any).resolvedCompanyId || req.headers['x-company-id'] || req.headers['x-unternehmen-id']) as string;
+    const unternehmenId = ((req as AuthRequest).resolvedCompanyId || req.headers['x-company-id'] || req.headers['x-unternehmen-id']) as string;
 
     const parsed = sendMessageSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -117,7 +117,6 @@ router.get('/api/messages/thread/:threadId', authMiddleware, async (req, res) =>
 router.post('/api/channels/:channel/messages', authMiddleware, async (req, res) => {
   try {
     const channel = req.params.channel as string;
-    const unternehmenId = ((req as any).resolvedCompanyId || req.headers['x-company-id'] || req.headers['x-unternehmen-id']) as string;
     const senderId = req.body.senderId as string;
     const payload = req.body.payload as { text: string; metadata?: Record<string, unknown>; urgency?: 'low' | 'normal' | 'high' };
 
@@ -137,7 +136,6 @@ router.post('/api/channels/:channel/messages', authMiddleware, async (req, res) 
 router.get('/api/channels/:channel/messages', authMiddleware, async (req, res) => {
   try {
     const channel = req.params.channel as string;
-    const unternehmenId = ((req as any).resolvedCompanyId || req.headers['x-company-id'] || req.headers['x-unternehmen-id']) as string;
     const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
 
     // Query directly via service — getInbox doesn't filter by channel, so we query manually

@@ -59,7 +59,22 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     setLanguageState(lang);
   }, []);
 
-  const t = translations[language];
+  const tx = translations[language];
+
+  // Hybrid t: works as function t('nav.dashboard') AND object t.nav.dashboard
+  const t = Object.assign(
+    (path: string) => {
+      const keys = path.split('.');
+      let value: any = tx;
+      for (const key of keys) {
+        value = value[key];
+        if (value === undefined) return path;
+      }
+      return value;
+    },
+    tx,
+  ) as Translations & ((path: string) => string);
+
   const isRTL = false; // Can be extended for Arabic/Hebrew support
 
   return (

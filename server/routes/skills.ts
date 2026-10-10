@@ -14,6 +14,7 @@
 // =============================================================================
 
 import { Router } from 'express';
+import { type AuthRequest } from '../middleware/auth.js';
 import { v4 as uuid } from 'uuid';
 import { eq, and, desc, inArray } from 'drizzle-orm';
 
@@ -130,7 +131,7 @@ router.post(
     db.insert(skillsLibrary).values({
       id, companyId, name, description: beschreibung ?? null,
       content: inhalt, tags: tags ? JSON.stringify(tags) : null,
-      createdBy: (req as any).user?.userId ?? null, createdAt: n, updatedAt: n,
+      createdBy: (req as AuthRequest).user?.userId ?? null, createdAt: n, updatedAt: n,
     }).run();
     res.status(201).json({ id, name });
   },
@@ -261,7 +262,7 @@ router.patch('/api/learned-skills/:id', authMiddleware, (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Skill not found' });
 
   // Authorize via company membership
-  const userId = (req as any).users?.userId;
+  const userId = (req as AuthRequest).users?.userId;
   const membership = db.select().from(companyMemberships)
     .where(and(eq(companyMemberships.userId, userId), eq(companyMemberships.companyId, existing.companyId)))
     .get();
@@ -281,10 +282,10 @@ router.patch('/api/learned-skills/:id', authMiddleware, (req, res) => {
 });
 
 router.delete('/api/learned-skills/:id', authMiddleware, (req, res) => {
+  const userId = (req as AuthRequest).users?.userId;
   const id = req.params.id as string;
   const existing = db.select().from(learnedSkills).where(eq(learnedSkills.id, id)).get();
   if (!existing) return res.status(404).json({ error: 'Skill not found' });
-  const userId = (req as any).users?.userId;
   const membership = db.select().from(companyMemberships)
     .where(and(eq(companyMemberships.userId, userId), eq(companyMemberships.companyId, existing.companyId)))
     .get();

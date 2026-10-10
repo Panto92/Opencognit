@@ -346,6 +346,8 @@ export async function runInSandbox(opts: SandboxOptions): Promise<SandboxResult>
     };
   }
 
+  const isProduction = process.env.NODE_ENV === 'production';
+
   // 2. Auto-detect best available sandbox
   const useDocker = process.env.USE_DOCKER_SANDBOX === '1' || process.env.USE_DOCKER_SANDBOX === 'true';
   const useSystemd = process.env.USE_SYSTEMD_SANDBOX === '1' || process.env.USE_SYSTEMD_SANDBOX === 'true';
@@ -358,7 +360,23 @@ export async function runInSandbox(opts: SandboxOptions): Promise<SandboxResult>
     return runSystemd(opts);
   }
 
-  // 3. Default: hardened exec with full validation
+  // 3. Production: Docker is MANDATORY — exec fallback is NOT allowed
+  if (isProduction) {
+    const dockerOk = await detectDocker();
+    if (!dockerOk) {
+      return {
+        success: false,
+        output: '🛡️ Sandbox-Block: Docker ist in Production Pflicht. Setze USE_DOCKER_SANDBOX=1 und stelle sicher, dass Docker läuft.',
+        exitCode: 1,
+        durationMs: 0,
+        sandboxLevel: 'exec',
+        error: 'Docker sandbox required in production. Install Docker and set USE_DOCKER_SANDBOX=1.',
+      };
+    }
+    return runDocker(opts);
+  }
+
+  // 4. Dev: hardened exec with full validation (warn)
   console.log(`[sandbox] WARN: Keine Container-Isolation verfügbar. Führe mit hartenden exec-Prüfungen aus. Installiere Docker für echte Isolation.`);
   return runExec(opts);
 }

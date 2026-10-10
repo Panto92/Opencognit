@@ -1,90 +1,112 @@
-import type express from 'express';
+// In-Memory Rate Limiter — for production, replace with Redis-backed limiter
+// Tracks requests per IP per window. Cleans up expired entries periodically.
 
-const RATE_LIMIT_READ = parseInt(process.env.API_RATE_LIMIT_READ || '120', 10);
-const RATE_LIMIT_WRITE = parseInt(process.env.API_RATE_LIMIT_WRITE || '30', 10);
-const RATE_LIMIT_WINDOW_MS = parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || '60000', 10);
+export interface RateLimitOptions {
+  windowMs: number;      // Time window in milliseconds
+  maxRequests: number;   // Max requests per window
+  message?: string;
+}
 
-interface RateLimitEntry {
-  readCount: number;
-  writeCount: number;
+interface Entry {
+  count: number;
   resetAt: number;
 }
 
-const apiRateLimits = new Map<string, RateLimitEntry>();
+const store = new Map<string, Entry>();
 
-export function apiRateLimit(req: express.Request, res: express.Response, next: express.NextFunction) {
-  // Skip rate limiting for webhooks (they have their own auth)
-  if (req.path.startsWith('/webhooks')) return next();
-
-  // Skip rate limiting for localhost/development
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-    || req.socket.remoteAddress || 'unknown';
-  if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') return next();
-  const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
-  const now_ms = Date.now();
-
-  let entry = apiRateLimits.get(ip);
-  if (!entry || now_ms > entry.resetAt) {
-    entry = { readCount: 0, writeCount: 0, resetAt: now_ms + RATE_LIMIT_WINDOW_MS };
-    apiRateLimits.set(ip, entry);
-  }
-
-  const limit = isWrite ? RATE_LIMIT_WRITE : RATE_LIMIT_READ;
-  const current = isWrite ? entry.writeCount : entry.readCount;
-
-  if (current >= limit) {
-    const retryAfter = Math.ceil((entry.resetAt - now_ms) / 1000);
-    res.setHeader('Retry-After', String(retryAfter));
-    return res.status(429).json({
-      error: 'Rate limit exceeded. Please wait.',
-      limit,
-      windowMs: RATE_LIMIT_WINDOW_MS,
-      retryAfter,
-    });
-  }
-
-  if (isWrite) entry.writeCount++;
-  else entry.readCount++;
-
-  // Expose rate limit headers
-  res.setHeader('X-RateLimit-Limit', String(limit));
-  res.setHeader('X-RateLimit-Remaining', String(Math.max(0, limit - (isWrite ? entry.writeCount : entry.readCount))));
-  res.setHeader('X-RateLimit-Reset', String(Math.ceil(entry.resetAt / 1000)));
-
-  next();
-}
-
-// Prune both rate limit maps periodically
+// Cleanup expired entries every 60 seconds
 setInterval(() => {
-  const now_ms = Date.now();
-  for (const [ip, entry] of apiRateLimits.entries()) {
-    if (now_ms > entry.resetAt) apiRateLimits.delete(ip);
+  const now = Date.now();
+  for (const [key, entry] of store) {
+    if (entry.resetAt <= now) store.delete(key);
   }
 }, 60000);
 
-const authRateLimits = new Map<string, { count: number; resetAt: number }>();
+export function rateLimit(opts: RateLimitOptions) {
+  const { windowMs, maxRequests, message = 'Too many requests. Please try again later.' } = opts;
 
-export function authRateLimit(maxPerWindow: number, windowMs: number) {
-  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
-    const entry = authRateLimits.get(ip);
-    const now_ms = Date.now();
-    if (!entry || now_ms > entry.resetAt) {
-      authRateLimits.set(ip, { count: 1, resetAt: now_ms + windowMs });
+  return (req: any, res: any, next: any) => {
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    const key = `${ip}:${req.path}`;
+    const now = Date.now();
+
+    const entry = store.get(key);
+    if (!entry || entry.resetAt <= now) {
+      store.set(key, { count: 1, resetAt: now + windowMs });
       return next();
     }
-    if (entry.count >= maxPerWindow) {
-      return res.status(429).json({ error: 'Too many attempts. Please wait.' });
-    }
+
     entry.count++;
-    return next();
+    if (entry.count > maxRequests) {
+      res.setHeader('Retry-After', Math.ceil((entry.resetAt - now) / 1000));
+      return res.status(429).json({ error: message });
+    }
+
+    next();
   };
 }
 
-// Prune rate limit map periodically to avoid unbounded growth
+// ── Per-Company Rate Limiter ────────────────────────────────────────────────
+// Prevents one noisy tenant from exhausting server resources.
+
+interface CompanyEntry {
+  count: number;
+  resetAt: number;
+}
+
+const companyStore = new Map<string, CompanyEntry>();
+
+// Cleanup expired company entries every 60 seconds
 setInterval(() => {
-  const now_ms = Date.now();
-  for (const [ip, entry] of authRateLimits.entries()) {
-    if (now_ms > entry.resetAt) authRateLimits.delete(ip);
+  const now = Date.now();
+  for (const [key, entry] of companyStore) {
+    if (entry.resetAt <= now) companyStore.delete(key);
   }
 }, 60000);
+
+export interface CompanyRateLimitOptions {
+  windowMs: number;
+  maxRequests: number;
+  message?: string;
+}
+
+export function companyRateLimit(opts: CompanyRateLimitOptions) {
+  const { windowMs, maxRequests, message = 'Tenant rate limit exceeded. Please slow down.' } = opts;
+
+  return (req: any, res: any, next: any) => {
+    const companyId = req.companyId || req.headers['x-company-id'] || (req as any).companyMembership?.companyId;
+    if (!companyId) {
+      // No company context — fall through (e.g. system endpoints)
+      return next();
+    }
+
+    const key = `company:${companyId}`;
+    const now = Date.now();
+
+    const entry = companyStore.get(key);
+    if (!entry || entry.resetAt <= now) {
+      companyStore.set(key, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+
+    entry.count++;
+    if (entry.count > maxRequests) {
+      res.setHeader('Retry-After', Math.ceil((entry.resetAt - now) / 1000));
+      res.setHeader('X-RateLimit-Limit', String(maxRequests));
+      res.setHeader('X-RateLimit-Remaining', '0');
+      return res.status(429).json({ error: message, retryAfterSec: Math.ceil((entry.resetAt - now) / 1000) });
+    }
+
+    res.setHeader('X-RateLimit-Limit', String(maxRequests));
+    res.setHeader('X-RateLimit-Remaining', String(Math.max(0, maxRequests - entry.count)));
+    next();
+  };
+}
+
+// Pre-configured limiters for common use cases
+export const strictLimiter = rateLimit({ windowMs: 15 * 60 * 1000, maxRequests: 5 });
+export const standardLimiter = rateLimit({ windowMs: 60 * 1000, maxRequests: 60 });
+export const apiRateLimit = rateLimit({ windowMs: 60 * 1000, maxRequests: 120 });
+
+// Per-tenant limiter: 500 requests/minute per company (generous for most use cases)
+export const tenantRateLimit = companyRateLimit({ windowMs: 60 * 1000, maxRequests: 500 });

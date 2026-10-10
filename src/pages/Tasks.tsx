@@ -21,6 +21,7 @@ import { authFetch } from '../utils/api';
 import { GlassCard } from '../components/GlassCard';
 
 export function Tasks() {
+  const { t } = useI18n();
   const i18n = useI18n();
   const location = useLocation();
   const [ansicht, setAnsicht] = useState<'kanban' | 'liste' | 'timeline' | 'graph'>('kanban');
@@ -732,16 +733,16 @@ export function Tasks() {
                                   style={{
                                     padding: '0.2rem 0.4rem',
                                     borderRadius: 0,
-                                    border: `1px solid ${a.isMaximizerMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(255, 255, 255, 0.08)'}`,
-                                    background: a.isMaximizerMode ? 'rgba(239, 68, 68, 0.15)' : 'transparent',
+                                    border: `1px solid rgba(255, 255, 255, 0.08)`,
+                                    background: 'transparent',
                                     cursor: 'pointer',
                                     display: 'flex', alignItems: 'center',
-                                    color: a.isMaximizerMode ? '#ef4444' : '#52525b',
+                                    color: '#52525b',
                                     transition: 'all 0.2s',
                                     ...(a.isMaximizerMode ? { boxShadow: '0 0 8px rgba(239, 68, 68, 0.3)' } : {}),
                                   }}
                                 >
-                                  <Zap size={12} fill={a.isMaximizerMode ? '#ef4444' : 'none'} />
+                                  <Zap size={12} fill={'none'} />
                                 </button>
                               </div>
                               {expert && (

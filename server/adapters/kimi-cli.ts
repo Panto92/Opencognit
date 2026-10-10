@@ -3,7 +3,7 @@
 // Install: pip install kimi-cli  (or: pipx install kimi-cli)
 // Auth:    kimi login
 
-import { Adapter, AdapterConfig, AdapterExecutionResult, AdapterTask, AdapterContext } from './types.js';
+import { Adapter, AdapterConfig, AdapterExecutionResult, AdapterTask, AdapterContext, AdapterRunOptions, AdapterRunResult } from './types.js';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
@@ -293,6 +293,51 @@ export class KimiCLIAdapter implements Adapter {
         resolve(false);
       }
     });
+  }
+
+  async run(options: AdapterRunOptions): Promise<AdapterRunResult> {
+    const task: AdapterTask = {
+      id: options.agentId,
+      title: options.expertName,
+      description: options.prompt,
+      status: 'in_progress',
+      priority: 'normal',
+    };
+    const context: AdapterContext = {
+      task,
+      previousComments: [],
+      companyContext: {
+        name: options.companyName,
+        goal: null,
+      },
+      agentContext: {
+        name: options.expertName,
+        role: options.role,
+        skills: options.skills || null,
+      },
+    };
+    const config: AdapterConfig = {
+      agentId: options.agentId,
+      companyId: options.companyId,
+      runId: `${Date.now()}`,
+      timeoutMs: options.timeoutMs || 10 * 60 * 1000,
+      workspacePath: options.workspacePath,
+      connectionType: options.connectionType,
+      connectionConfig: options.connectionConfig ? JSON.parse(options.connectionConfig) : undefined,
+      globalDefaultModel: options.globalDefaultModel,
+    };
+    const result = await this.execute(task, context, config);
+    return {
+      success: result.success,
+      output: result.output,
+      error: result.error,
+      duration: result.durationMs,
+      tokenUsage: {
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        costCent: result.costCents,
+      },
+    };
   }
 }
 

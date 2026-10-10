@@ -45,14 +45,33 @@ if (!isPg) {
   const { drizzle } = await import('drizzle-orm/postgres-js');
   const schema = await import('./schema.pg.js');
 
+  const isProduction = process.env.NODE_ENV === 'production';
+
   const client = postgres(DATABASE_URL!, {
-    max: 10,          // max 10 parallel connections
-    idle_timeout: 30, // release idle connections after 30s
-    connect_timeout: 10,
+    max: isProduction ? 20 : 10,      // more connections in production
+    idle_timeout: 30,                 // release idle connections after 30s
+    connect_timeout: 10,              // fail fast if DB is unreachable
+    prepare: true,                    // enable prepared statement caching
+    retry: isProduction ? {           // retry transient failures in production
+      attempts: 3,
+      delay: (attempt: number) => Math.min(attempt * 500, 3000),
+    } : undefined,
+    onnotice: () => {},               // suppress NOTICE messages
   });
 
-  db = drizzle(client, { schema });
-  console.log('🐘 PostgreSQL Datenbank verbunden');
+  // Verify connection on startup
+  try {
+    await client`SELECT 1`;
+    db = drizzle(client, { schema });
+    console.log('🐘 PostgreSQL verbunden (pool: ' + (isProduction ? 20 : 10) + ' max)');
+  } catch (err: any) {
+    console.error('🚨 PostgreSQL-Verbindung fehlgeschlagen:', err.message);
+    if (isProduction) {
+      console.error('🚨 Production start aborted — database unreachable.');
+      process.exit(1);
+    }
+    throw err;
+  }
 }
 
 export { db, sqlite };
@@ -117,7 +136,10 @@ async function runSqliteMigrations(migrationsDir: string) {
 async function runPostgresMigrations(migrationsDir: string) {
   // Use the underlying postgres client directly for migrations
   const { default: postgres } = await import('postgres');
-  const client = postgres(DATABASE_URL!);
+  const client = postgres(DATABASE_URL!, {
+    max: 1, // single connection for migrations
+    connect_timeout: 10,
+  });
 
   try {
     // Ensure _migrations tracking table exists
@@ -144,9 +166,9 @@ async function runPostgresMigrations(migrationsDir: string) {
       const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
 
       await client.begin(async (tx) => {
-        // Split and execute each statement
+        // Split by drizzle statement-breakpoint (handles statements with internal semicolons)
         const statements = sql
-          .split(';')
+          .split('--> statement-breakpoint')
           .map(s => s.trim())
           .filter(s => s.length > 0 && !s.startsWith('--'));
 

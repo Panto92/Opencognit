@@ -11,6 +11,7 @@
 // =============================================================================
 
 import { Router } from 'express';
+import { type AuthRequest } from '../middleware/auth.js';
 import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
 import { eq, and, desc, inArray, count } from 'drizzle-orm';
@@ -63,7 +64,7 @@ const zCompany = z.object({
 // =============================================
 
 router.get('/api/companies', (req, res) => {
-  const userId = (req as any).users?.userId;
+  const userId = (req as AuthRequest).users?.userId;
   if (!userId) {
     const result = db.select().from(companies).orderBy(desc(companies.createdAt)).all();
     return res.json(result);
@@ -83,10 +84,10 @@ router.get('/api/companies', (req, res) => {
 });
 
 router.post('/api/companies', (req, res) => {
+  const userId = (req as AuthRequest).users?.userId;
   const body = validate(zCompany, req, res);
   if (!body) return;
   const { name, beschreibung, ziel, workDir } = body;
-  const userId = (req as any).users?.userId;
 
   const id = uuid();
 
@@ -346,7 +347,7 @@ router.delete('/api/companies/:id/reset', authMiddleware, requireCompanyAccess([
 
 // Companies the current user belongs to
 router.get('/api/user/memberships', authMiddleware, (req, res) => {
-  const userId = (req as any).users?.userId;
+  const userId = (req as AuthRequest).users?.userId;
   if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
   const rows = db.select({
@@ -444,7 +445,7 @@ router.post('/api/companies/:id/invites', authMiddleware, requireCompanyAccess([
 
 router.post('/api/invites/:token/accept', authMiddleware, (req, res) => {
   const token = req.params.token as string;
-  const userId = (req as any).users?.userId;
+  const userId = (req as AuthRequest).users?.userId;
   if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
   const membership = db.select().from(companyMemberships)
@@ -468,7 +469,7 @@ router.delete('/api/companies/:id/members/:userId', authMiddleware, requireCompa
   const targetUserId = req.params.userId as string;
 
   // Prevent self-removal of the last owner
-  const selfMembership = (req as any).companyMembership;
+  const selfMembership = (req as AuthRequest).companyMembership;
   if (selfMembership?.userId === targetUserId) {
     const ownerCount = db.select({ value: count() })
       .from(companyMemberships)

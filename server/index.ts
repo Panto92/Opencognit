@@ -45,6 +45,7 @@ import { appEvents } from './events.js';
 import { autoSaveInsights, loadRelevantMemory } from './services/memory-auto.js';
 import { nodeManager } from './services/nodeManager.js';
 import webhooksRouter from './routes/webhooks.js';
+import { rateLimit } from './middleware/rate-limit.js';
 import outgoingWebhooksRouter from './routes/outgoing-webhooks.js';
 import semanticMemoryRouter from './routes/semantic-memory.js';
 import skillsRouter, { mapSkillToDe } from './routes/skills.js';
@@ -74,11 +75,14 @@ import {
   requireResourceAccess,
   agentAuth,
   deriveAgentToken,
+  type AuthRequest,
 } from './middleware/auth.js';
 import { urlRewrite, responseAlias } from './middleware/compat.js';
-import { apiRateLimit } from './middleware/rate-limit.js';
+import { apiRateLimit, tenantRateLimit } from './middleware/rate-limit.js';
 import { traceMiddleware } from './middleware/trace.js';
 import { runStartupChecks } from './services/env-check.js';
+import { auditMiddleware } from './services/audit-log.js';
+import { companyScopeMiddleware } from './middleware/company-scope.js';
 // Re-export for any external module still importing from './index.js'
 export { authMiddleware, requireCompanyAccess, requireResourceAccess };
 
@@ -259,9 +263,15 @@ app.get('/api/auth/ich', async (req, res) => {
 });
 
 // Mount BetterAuth BEFORE express.json() — per BetterAuth docs
+// Rate limit sensitive auth endpoints
+const authStrictLimit = rateLimit({ windowMs: 15 * 60 * 1000, maxRequests: 10 });
+app.use('/api/auth/sign-in', authStrictLimit);
+app.use('/api/auth/sign-up', authStrictLimit);
+app.use('/api/auth/sign-out', authStrictLimit);
 app.use('/api/auth', toNodeHandler(betterAuth));
 
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Silence Chrome DevTools probe — harmless 404 spam in dev
 app.get('/.well-known/appspecific/com.chrome.devtools.json', (_req: any, res: any) => res.json({}));
@@ -318,6 +328,15 @@ app.use('/api', (req: express.Request, res: express.Response, next: express.Next
   if (oeffentlich.some(p => req.path.startsWith(p)) || req.path.startsWith('/agent/')) return next();
   return authMiddleware(req, res, next);
 });
+
+// Ensure company scope is present for all /api routes
+app.use('/api', companyScopeMiddleware);
+
+// Audit logging for all state-changing /api requests
+app.use('/api', auditMiddleware());
+
+// Per-tenant rate limiting (after auth so we know the company)
+app.use('/api', tenantRateLimit);
 
 // MOUNT EXTRACTED ROUTERS HERE — after the global rate-limiter and auth chain
 // so a request to a moved route still passes through them, exactly as it did
@@ -542,7 +561,7 @@ app.post('/api/agent/tasks', agentAuth, (req, res) => {
 app.post('/api/agent/tasks/:id/status', agentAuth, (req, res) => {
   const id = req.params.id as string;
   const { status } = req.body;
-  const expertId = req.body.agentId as string;
+  const expertId = (req as AuthRequest).agentContext?.agentId as string;
 
   const VALID_STATUSES = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled'];
   if (!status || !VALID_STATUSES.includes(status)) {
@@ -562,7 +581,7 @@ app.post('/api/agent/tasks/:id/status', agentAuth, (req, res) => {
   const agent = db.select().from(agents).where(eq(agents.id, expertId as string)).get();
   const agentName = agent?.name || '';
   const taskTitel = aufgabe?.title || '';
-  const unternehmenId = aufgabe?.companyId || req.body.companyId;
+  const unternehmenId = aufgabe?.companyId || (req as AuthRequest).agentContext?.companyId;
 
   if (status === 'done') {
     broadcastUpdate('task_completed', { unternehmenId, taskId: id, taskTitel, agentName });
@@ -577,8 +596,8 @@ app.post('/api/agent/tasks/:id/status', agentAuth, (req, res) => {
 
 // Agent Chat Reply Endpoint
 app.post('/api/agent/chat', agentAuth, (req, res) => {
-  const expertId = req.body.agentId;
-  const unternehmenId = req.body.companyId;
+  const expertId = (req as AuthRequest).agentContext?.agentId;
+  const unternehmenId = (req as AuthRequest).agentContext?.companyId;
   const { nachricht } = req.body;
 
   if (!nachricht) return res.status(400).json({ error: 'Missing nachricht' });
@@ -903,7 +922,7 @@ app.delete('/api/agents/:id/skills/:skillId', requireResourceAccess("agent"), as
 // =============================================
 function handleChatGet(req: express.Request, res: express.Response) {
   const id = req.params.id as string;
-  const unternehmenId = ((req as any).resolvedCompanyId || req.headers['x-company-id'] || req.headers['x-unternehmen-id'] || req.headers['x-firma-id']) as string;
+  const unternehmenId = ((req as AuthRequest).resolvedCompanyId || req.headers['x-company-id'] || req.headers['x-unternehmen-id'] || req.headers['x-firma-id']) as string;
   if (!unternehmenId) return res.status(400).json({ error: 'Missing x-company-id header' });
 
   const history = db.select()
@@ -946,7 +965,7 @@ function handleChatGet(req: express.Request, res: express.Response) {
 
 function handleChatPost(req: express.Request, res: express.Response) {
   const id = req.params.id as string;
-  const unternehmenId = ((req as any).resolvedCompanyId || req.headers['x-company-id'] || req.headers['x-unternehmen-id'] || req.headers['x-firma-id'] || req.body.unternehmenId || req.body.companyId) as string;
+  const unternehmenId = ((req as AuthRequest).resolvedCompanyId || (req as AuthRequest).agentContext?.companyId || req.headers['x-company-id'] || req.headers['x-unternehmen-id'] || req.headers['x-firma-id'] || req.body.unternehmenId || req.body.companyId) as string;
   const nachricht = req.body.nachricht || req.body.message;
   const absenderTyp = req.body.absenderTyp || req.body.senderType || 'board';
   if (!unternehmenId || !nachricht) return res.status(400).json({ error: 'Missing parameters' });
@@ -975,7 +994,7 @@ app.post('/api/agents/:id/chat', requireResourceAccess('agent'), handleChatPost)
 // DELETE entire chat history for an agent
 app.delete('/api/agents/:id/chat', requireResourceAccess('agent'), (req: express.Request, res: express.Response) => {
   const expertId = req.params.id as string;
-  const unternehmenId = ((req as any).resolvedCompanyId || req.headers['x-company-id'] || req.headers['x-unternehmen-id'] || req.headers['x-firma-id']) as string;
+  const unternehmenId = ((req as AuthRequest).resolvedCompanyId || req.headers['x-company-id'] || req.headers['x-unternehmen-id'] || req.headers['x-firma-id']) as string;
   if (!unternehmenId) return res.status(400).json({ error: 'Missing x-company-id header' });
   db.delete(chatMessages).where(and(eq(chatMessages.companyId, unternehmenId), eq(chatMessages.agentId, expertId))).run();
   res.json({ status: 'ok', deleted: true });
@@ -985,7 +1004,7 @@ app.delete('/api/agents/:id/chat', requireResourceAccess('agent'), (req: express
 app.delete('/api/agents/:id/chat/messages/:msgId', requireResourceAccess('agent'), (req: express.Request, res: express.Response) => {
   const expertId = req.params.id as string;
   const msgId = req.params.msgId as string;
-  const unternehmenId = ((req as any).resolvedCompanyId || req.headers['x-company-id'] || req.headers['x-unternehmen-id'] || req.headers['x-firma-id']) as string;
+  const unternehmenId = ((req as AuthRequest).resolvedCompanyId || req.headers['x-company-id'] || req.headers['x-unternehmen-id'] || req.headers['x-firma-id']) as string;
   if (!unternehmenId) return res.status(400).json({ error: 'Missing x-company-id header' });
   db.delete(chatMessages).where(and(eq(chatMessages.companyId, unternehmenId), eq(chatMessages.agentId, expertId), eq(chatMessages.id, msgId))).run();
   res.json({ status: 'ok', deleted: true });
@@ -1024,7 +1043,7 @@ const URL_PATTERN = /https?:\/\/[^\s)>"']+/g;
 
 app.post('/api/agents/:id/chat/direct', requireResourceAccess("agent"), async (req: express.Request, res: express.Response) => {
   const expertId = req.params.id as string;
-  const unternehmenId = ((req as any).resolvedCompanyId || req.headers['x-company-id'] || req.headers['x-unternehmen-id'] || req.headers['x-firma-id']) as string;
+  const unternehmenId = ((req as AuthRequest).resolvedCompanyId || req.headers['x-company-id'] || req.headers['x-unternehmen-id'] || req.headers['x-firma-id']) as string;
   const { nachricht } = req.body;
   if (!unternehmenId || !nachricht) return res.status(400).json({ error: 'Missing parameters' });
 
@@ -1351,7 +1370,7 @@ ${langLine(uiLang)} ${isEn ? `You respond directly to board messages. Be precise
 // =============================================
 app.post(['/api/agents/:id/chat/stream', '/api/experten/:id/chat/stream'], authMiddleware, requireResourceAccess('agent'), async (req: express.Request, res: express.Response) => {
   const expertId = req.params.id as string;
-  const unternehmenId = ((req as any).resolvedCompanyId || req.headers['x-company-id'] || req.headers['x-unternehmen-id'] || req.headers['x-firma-id']) as string;
+  const unternehmenId = ((req as AuthRequest).resolvedCompanyId || req.headers['x-company-id'] || req.headers['x-unternehmen-id'] || req.headers['x-firma-id']) as string;
   const { nachricht, image } = req.body; // image: { data: string (base64), mimeType: string }
   if (!unternehmenId || !nachricht) return res.status(400).json({ error: 'Missing parameters' });
 

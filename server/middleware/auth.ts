@@ -12,6 +12,35 @@ import crypto from 'crypto';
 import { fromNodeHeaders } from 'better-auth/node';
 import { eq, and } from 'drizzle-orm';
 
+// ---------------------------------------------------------------------------
+// Extended Request type — avoids (req as AuthRequest) casting across the codebase
+// ---------------------------------------------------------------------------
+export interface AuthRequest extends express.Request {
+  users?: {
+    userId: string;
+    email: string;
+    rolle: string;
+  };
+  companyMembership?: {
+    userId: string;
+    companyId: string;
+    role: string;
+  };
+  companyId?: string;
+  resolvedCompanyId?: string;
+  expert?: {
+    id: string;
+    companyId: string;
+    name: string;
+    status: string;
+  };
+  agentContext?: {
+    agentId: string;
+    companyId: string;
+    expert: AuthRequest['expert'];
+  };
+}
+
 import { auth as betterAuth } from '../auth.js';
 import { db } from '../db/client.js';
 import {
@@ -52,7 +81,7 @@ export async function authMiddleware(
       headers: fromNodeHeaders(req.headers),
     });
     if (session?.user) {
-      (req as any).users = {
+      (req as AuthRequest).users = {
         userId: session.user.id,
         email: session.user.email,
         rolle: (session.user as any).role ?? 'mitglied',
@@ -74,12 +103,16 @@ export async function authMiddleware(
   try {
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : queryToken;
     if (!token) throw new Error('No token');
-    const secret = process.env.JWT_SECRET as string;
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      console.error('[Auth] JWT_SECRET is not configured');
+      return res.status(500).json({ error: 'Server misconfiguration.' });
+    }
     const payload = jwt.verify(token, secret) as { userId: string; email: string; rolle: string };
     // Verify user still exists in DB (prevents stale tokens after user deletion)
     const user = db.select({ id: users.id }).from(users).where(eq(users.id, payload.userId)).get();
     if (!user) return res.status(401).json({ error: 'User not found.' });
-    (req as any).users = payload;
+    (req as AuthRequest).users = payload;
     next();
   } catch (err: any) {
     console.error('[Auth] Validation failed:', err?.message);
@@ -98,7 +131,7 @@ export async function authMiddleware(
  */
 export function requireCompanyAccess(allowedRoles?: string[]) {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const userId = (req as any).users?.userId;
+    const userId = (req as AuthRequest).users?.userId;
     if (!userId) {
       return res.status(401).json({ error: 'Not authenticated.' });
     }
@@ -137,8 +170,8 @@ export function requireCompanyAccess(allowedRoles?: string[]) {
     }
 
     // Attach membership + resolved companyId to request for downstream use
-    (req as any).companyMembership = membership;
-    (req as any).companyId = companyId;
+    (req as AuthRequest).companyMembership = membership;
+    (req as AuthRequest).companyId = companyId;
     next();
   };
 }
@@ -190,7 +223,7 @@ export function requireResourceAccess(
   allowedRoles?: string[],
 ) {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const userId = (req as any).users?.userId;
+    const userId = (req as AuthRequest).users?.userId;
     if (!userId) return res.status(401).json({ error: 'Not authenticated.' });
 
     const resourceId = req.params[paramName] as string | undefined;
@@ -212,8 +245,8 @@ export function requireResourceAccess(
       return res.status(403).json({ error: 'Insufficient permissions.' });
     }
 
-    (req as any).companyMembership = membership;
-    (req as any).resolvedCompanyId = companyId;
+    (req as AuthRequest).companyMembership = membership;
+    (req as AuthRequest).resolvedCompanyId = companyId;
     next();
   };
 }
@@ -222,9 +255,21 @@ export function requireResourceAccess(
 // agentAuth — token-based auth for agents calling /api/agent/*
 // ---------------------------------------------------------------------------
 
-// Token = "ak_" + HMAC-SHA256(JWT_SECRET, agentId:companyId)[0..31]
+// Agent tokens use a SEPARATE secret from JWT_SECRET.
+// If AGENT_TOKEN_SECRET is not set, falls back to JWT_SECRET for backwards compatibility.
+// For production, set AGENT_TOKEN_SECRET explicitly to isolate agent tokens from session tokens.
+// Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+function getAgentTokenSecret(): string {
+  const secret = process.env.AGENT_TOKEN_SECRET || process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('AGENT_TOKEN_SECRET or JWT_SECRET must be configured');
+  }
+  return secret;
+}
+
+// Token = "ak_" + HMAC-SHA256(AGENT_TOKEN_SECRET, agentId:companyId)[0..31]
 export function deriveAgentToken(agentId: string, companyId: string): string {
-  const secret = process.env.JWT_SECRET as string;
+  const secret = getAgentTokenSecret();
   return 'ak_' + crypto.createHmac('sha256', secret).update(`${agentId}:${companyId}`).digest('hex').slice(0, 32);
 }
 
@@ -272,8 +317,11 @@ export const agentAuth = (
     return res.status(403).json({ error: `Agent is ${expert.status}`, status: expert.status });
   }
 
-  (req as any).expert = expert;
-  req.body.agentId = expertId;
-  req.body.companyId = unternehmenId;
+  (req as AuthRequest).expert = expert;
+  (req as AuthRequest).agentContext = {
+    agentId: expertId,
+    companyId: unternehmenId,
+    expert,
+  };
   next();
 };

@@ -1,4 +1,5 @@
 import { pgTable, text, integer, boolean, primaryKey, index } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 // ===== Benutzer =====
 export const users = pgTable('users', {

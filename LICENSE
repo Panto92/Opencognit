@@ -1,30 +1,100 @@
-GNU AFFERO GENERAL PUBLIC LICENSE
-Version 3, 19 November 2007
+OpenCognit Commercial License Agreement
 
-Copyright (c) 2026 Panto
+Copyright (c) 2026 Panto. All rights reserved.
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
+THIS SOFTWARE IS PROVIDED UNDER A COMMERCIAL LICENSE.
+IT IS NOT OPEN SOURCE. IT IS NOT FREE SOFTWARE.
 
 ---
 
-Additional permission under GNU AGPL version 3 section 7:
+1. DEFINITIONS
 
-If you modify this Program, or any covered work, by linking or combining
-it with proprietary software, the licensor grants you additional permission
-to convey the resulting work under terms of your choice, provided that you
-also convey the machine-readable Corresponding Source of the combined work
-under the terms of this license.
+   "Software" means the OpenCognit application, including all source code,
+   object code, documentation, and related materials.
 
-For commercial licensing (closed-source, SaaS, enterprise use without
-AGPL obligations), contact: https://github.com/OpenCognit/opencognit/issues
+   "License Key" means a unique cryptographic token issued by Panto or an
+   authorized reseller that grants the right to use the Software.
+
+   "You" means the individual or entity that has purchased a valid License Key.
+
+2. LICENSE GRANT
+
+   Subject to Your compliance with this Agreement and payment of applicable
+   fees, Panto grants You a limited, non-exclusive, non-transferable,
+   revocable license to:
+
+   a) Install and use the Software on the number of devices or for the number
+      of users specified in Your License Key.
+   b) Use the Software for Your internal business purposes or personal use.
+   c) Create backup copies for archival purposes only.
+
+3. RESTRICTIONS
+
+   You may NOT:
+
+   a) Distribute, sublicense, rent, lease, lend, sell, or otherwise transfer
+      the Software or any License Key to any third party.
+   b) Reverse engineer, decompile, disassemble, or attempt to derive the
+      source code of the Software, except to the extent expressly permitted
+      by applicable law.
+   c) Remove, alter, or obscure any proprietary notices, labels, or marks
+      on the Software.
+   d) Use the Software to provide a service bureau, time-sharing, or
+      application service provider (ASP) service to third parties,
+      unless explicitly covered by a separate SaaS Agreement.
+   e) Circumvent or disable any license verification, copy protection, or
+      other security mechanisms.
+   f) Use the Software in any manner that violates applicable laws or
+      regulations.
+
+4. INTELLECTUAL PROPERTY
+
+   The Software and all copies thereof are owned by Panto and are protected
+   by copyright, trade secret, trademark, and other intellectual property laws.
+   This Agreement does not grant You any ownership rights in the Software.
+
+5. LICENSE VERIFICATION
+
+   The Software may communicate with Panto's license servers to verify the
+   validity of Your License Key. You agree not to interfere with or block
+   these communications. The Software may become partially or fully
+   non-functional if a valid License Key cannot be verified.
+
+6. TERMINATION
+
+   This Agreement is effective until terminated. Panto may terminate this
+   Agreement immediately if You breach any term. Upon termination, You must
+   cease all use of the Software and destroy all copies.
+
+7. DISCLAIMER OF WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, OR NON-INFRINGEMENT. PANTO DOES NOT
+   WARRANT THAT THE SOFTWARE WILL BE ERROR-FREE OR UNINTERRUPTED.
+
+8. LIMITATION OF LIABILITY
+
+   IN NO EVENT SHALL PANTO BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL,
+   CONSEQUENTIAL, OR PUNITIVE DAMAGES ARISING OUT OF OR RELATED TO THIS
+   AGREEMENT OR THE SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
+   DAMAGES. PANTO'S TOTAL LIABILITY SHALL NOT EXCEED THE AMOUNT YOU PAID
+   FOR THE LICENSE KEY IN THE TWELVE (12) MONTHS PRECEDING THE CLAIM.
+
+9. GOVERNING LAW
+
+   This Agreement shall be governed by and construed in accordance with the
+   laws of Germany, without regard to its conflict of law principles.
+
+10. ENTIRE AGREEMENT
+
+    This Agreement constitutes the entire agreement between You and Panto
+    regarding the Software and supersedes all prior agreements,
+    understandings, and communications.
+
+---
+
+For license inquiries, bulk pricing, or SaaS terms:
+contact@opencognit.cloud
+
+Version 1.0 — Effective June 1, 2026

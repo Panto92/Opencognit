@@ -44,6 +44,8 @@ const WorkerNodes  = lazy(() => import('./pages/WorkerNodes').then(m => ({ defau
 const Chat         = lazy(() => import('./pages/Chat').then(m => ({ default: m.Chat })));
 const Memory       = lazy(() => import('./pages/Memory').then(m => ({ default: m.Memory })));
 const LearnedSkills = lazy(() => import('./pages/LearnedSkills').then(m => ({ default: m.LearnedSkills })));
+const VibeCode     = lazy(() => import('./pages/VibeCode').then(m => ({ default: m.VibeCode })));
+const DeepResearch = lazy(() => import('./pages/DeepResearch').then(m => ({ default: m.DeepResearch })));
 
 function PageLoader() {
   return (
@@ -118,6 +120,8 @@ function ProtectedRoutes() {
           <Route path="/chat" element={<Page><Chat /></Page>} />
           <Route path="/memory" element={<Page><Memory /></Page>} />
           <Route path="/learned-skills" element={<Page><LearnedSkills /></Page>} />
+          <Route path="/vibe-code" element={<Page><VibeCode /></Page>} />
+          <Route path="/deep-research" element={<Page><DeepResearch /></Page>} />
           <Route path="/settings" element={<Page><Settings /></Page>} />
           {/* Legacy German routes — redirect to English */}
           <Route path="/unternehmen" element={<Navigate to="/companies" replace />} />
