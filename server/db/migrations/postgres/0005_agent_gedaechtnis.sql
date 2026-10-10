@@ -1,10 +1,10 @@
 -- Migration 0005: Agent-Gedächtnis (PARA-Methode) + Verbindungstyp-Erweiterung
 
-CREATE TABLE IF NOT EXISTS agent_gedaechtnis (
+CREATE TABLE IF NOT EXISTS agentGedaechtnis (
   id TEXT PRIMARY KEY,
-  expert_id TEXT NOT NULL REFERENCES experten(id),
-  unternehmen_id TEXT NOT NULL REFERENCES unternehmen(id),
-  projekte TEXT,
+  expert_id TEXT NOT NULL REFERENCES agents(id),
+  unternehmen_id TEXT NOT NULL REFERENCES companies(id),
+  projects TEXT,
   bereiche TEXT,
   ressourcen TEXT,
   archiv TEXT,
@@ -13,4 +13,4 @@ CREATE TABLE IF NOT EXISTS agent_gedaechtnis (
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_gedaechtnis_expert
-  ON agent_gedaechtnis(expert_id);
+  ON agentGedaechtnis(expert_id);

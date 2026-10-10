@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS worker_nodes (
+CREATE TABLE IF NOT EXISTS workerNodes (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   hostname TEXT,
@@ -13,4 +13,4 @@ CREATE TABLE IF NOT EXISTS worker_nodes (
   aktualisiert_am TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS worker_nodes_status_idx ON worker_nodes (status, last_heartbeat_at);
+CREATE INDEX IF NOT EXISTS worker_nodes_status_idx ON workerNodes (status, last_heartbeat_at);

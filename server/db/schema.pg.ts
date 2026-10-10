@@ -554,3 +554,253 @@ export const workerNodes = pgTable('worker_nodes', {
 }, (t) => ({
   idxStatus: index('worker_nodes_status_idx').on(t.status, t.lastHeartbeatAt),
 }));
+
+// ===== BetterAuth Tables =====
+export const user = pgTable('user', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  emailVerified: boolean('email_verified').default(false).notNull(),
+  image: text('image'),
+  role: text('role').notNull().default('user'),
+  banned: boolean('banned').default(false),
+  banReason: text('ban_reason'),
+  banExpires: integer('ban_expires'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const session = pgTable('session', {
+  id: text('id').primaryKey(),
+  expiresAt: integer('expires_at').notNull(),
+  token: text('token').notNull().unique(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+}, (table) => [index('session_userId_idx').on(table.userId)]);
+
+export const account = pgTable('account', {
+  id: text('id').primaryKey(),
+  accountId: text('account_id').notNull(),
+  providerId: text('provider_id').notNull(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  accessToken: text('access_token'),
+  refreshToken: text('refresh_token'),
+  idToken: text('id_token'),
+  accessTokenExpiresAt: integer('access_token_expires_at'),
+  refreshTokenExpiresAt: integer('refresh_token_expires_at'),
+  scope: text('scope'),
+  password: text('password'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+}, (table) => [index('account_userId_idx').on(table.userId)]);
+
+export const verification = pgTable('verification', {
+  id: text('id').primaryKey(),
+  identifier: text('identifier').notNull(),
+  value: text('value').notNull(),
+  expiresAt: integer('expires_at').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+}, (table) => [index('verification_identifier_idx').on(table.identifier)]);
+
+// ===== Company Memberships =====
+export const companyMemberships = pgTable('company_memberships', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  companyId: text('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  role: text('role').notNull().default('member'),
+  invitedAt: text('invited_at'),
+  joinedAt: text('joined_at').default(sql`now()`),
+  inviteToken: text('invite_token').unique(),
+}, (t) => [
+  index('membership_user_idx').on(t.userId),
+  index('membership_company_idx').on(t.companyId),
+  index('membership_token_idx').on(t.inviteToken),
+]);
+
+// ===== Work Cycles Archive =====
+export const workCyclesArchive = pgTable('arbeitszyklen_archiv', {
+  id: text('id').primaryKey(),
+  companyId: text('unternehmen_id').notNull().references(() => companies.id),
+  agentId: text('expert_id').notNull().references(() => agents.id),
+  archiveDate: text('archiv_datum').notNull(),
+  cycleCount: integer('zyklus_anzahl').notNull().default(0),
+  successCount: integer('erfolgreich_anzahl').notNull().default(0),
+  failedCount: integer('fehlgeschlagen_anzahl').notNull().default(0),
+  cancelledCount: integer('abgebrochen_anzahl').notNull().default(0),
+  avgDurationMs: integer('durchschnitt_dauer_ms').notNull().default(0),
+  totalInputTokens: integer('gesamt_input_tokens').notNull().default(0),
+  totalOutputTokens: integer('gesamt_output_tokens').notNull().default(0),
+  totalCostCent: integer('gesamt_kosten_cent').notNull().default(0),
+  modelsJson: text('modelle_json'),
+  createdAt: text('erstellt_am').notNull(),
+}, (t) => ({
+  idxUnternehmenDatum: index('archiv_unternehmen_datum_idx').on(t.companyId, t.archiveDate),
+  idxExpert: index('archiv_expert_idx').on(t.agentId, t.archiveDate),
+}));
+
+// ===== Task Checkpoints =====
+export const taskCheckpoints = pgTable('task_checkpoints', {
+  id: text('id').primaryKey(),
+  taskId: text('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+  runId: text('run_id').references(() => workCycles.id, { onDelete: 'set null' }),
+  agentId: text('agent_id').notNull().references(() => agents.id, { onDelete: 'cascade' }),
+  companyId: text('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  stateLabel: text('state_label').notNull(),
+  filesChanged: text('files_changed'),
+  commandsRun: text('commands_run'),
+  result: text('result'),
+  blocker: text('blocker'),
+  nextAction: text('next_action'),
+  createdAt: text('created_at').notNull(),
+}, (t) => ({
+  idxTask: index('checkpoint_task_idx').on(t.taskId),
+  idxRun: index('checkpoint_run_idx').on(t.runId),
+  idxAgent: index('checkpoint_agent_idx').on(t.agentId),
+  idxCompany: index('checkpoint_company_idx').on(t.companyId),
+}));
+
+// ===== Learned Skills =====
+export const learnedSkills = pgTable('learned_skills', {
+  id: text('id').primaryKey(),
+  companyId: text('unternehmen_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  sourceAgentId: text('source_agent_id').references(() => agents.id, { onDelete: 'set null' }),
+  sourceTaskId: text('source_task_id').references(() => tasks.id, { onDelete: 'set null' }),
+  sourceRunId: text('source_run_id').references(() => workCycles.id, { onDelete: 'set null' }),
+  title: text('title').notNull(),
+  pattern: text('pattern').notNull(),
+  recipe: text('recipe').notNull(),
+  keywords: text('keywords'),
+  confidence: integer('confidence').notNull().default(50),
+  useCount: integer('use_count').notNull().default(0),
+  lastUsedAt: text('last_used_at'),
+  isPinned: boolean('is_pinned').notNull().default(false),
+  isDisabled: boolean('is_disabled').notNull().default(false),
+  extractedBy: text('extracted_by').notNull().default('heuristic'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (t) => ({
+  idxCompany: index('learned_skills_company_idx').on(t.companyId),
+  idxKeywordSearch: index('learned_skills_keywords_idx').on(t.companyId, t.isDisabled),
+}));
+
+// ===== Agent Trust Scores =====
+export const agentTrustScores = pgTable('agent_trust_scores', {
+  id: text('id').primaryKey(),
+  subjectAgentId: text('subject_expert_id').notNull().references(() => agents.id),
+  companyId: text('unternehmen_id').notNull().references(() => companies.id),
+  evaluatorAgentId: text('evaluator_expert_id').notNull(),
+  score: integer('score').notNull().default(50),
+  reliability: integer('zuverlaessigkeit').notNull().default(50),
+  quality: integer('qualitaet').notNull().default(50),
+  communication: integer('kommunikation').notNull().default(50),
+  collaboration: integer('zusammenarbeit').notNull().default(50),
+  ratingCount: integer('bewertungs_count').notNull().default(0),
+  trend: text('trend').notNull().default('stable'),
+  historyJson: text('verlauf_json'),
+  lastUpdated: text('letzte_aktualisierung').notNull(),
+  createdAt: text('erstellt_am').notNull(),
+  updatedAt: text('aktualisiert_am').notNull(),
+});
+
+// ===== Agent Votes =====
+export const agentVotes = pgTable('agent_votes', {
+  id: text('id').primaryKey(),
+  companyId: text('unternehmen_id').notNull().references(() => companies.id),
+  contextId: text('context_id').notNull(),
+  contextType: text('context_typ').notNull(),
+  agentId: text('expert_id').notNull().references(() => agents.id),
+  vote: integer('vote').notNull(),
+  weightedVote: integer('gewichteter_vote'),
+  reason: text('begruendung'),
+  proposalText: text('proposal_text'),
+  createdAt: text('erstellt_am').notNull(),
+});
+
+// ===== Agent Capabilities =====
+export const agentCapabilities = pgTable('agent_capabilities', {
+  id: text('id').primaryKey(),
+  agentId: text('expert_id').notNull().references(() => agents.id),
+  companyId: text('unternehmen_id').notNull().references(() => companies.id),
+  capabilitiesJson: text('capabilities_json').notNull(),
+  quelle: text('quelle').notNull().default('manual'),
+  konfidenz: integer('konfidenz').notNull().default(50),
+  letzteAktualisierung: text('letzte_aktualisierung'),
+  createdAt: text('erstellt_am').notNull(),
+  updatedAt: text('aktualisiert_am').notNull(),
+});
+
+// ===== Contract Net Bids =====
+export const contractNetBids = pgTable('contract_net_bids', {
+  id: text('id').primaryKey(),
+  companyId: text('unternehmen_id').notNull().references(() => companies.id),
+  taskId: text('aufgabe_id').notNull().references(() => tasks.id),
+  bidderAgentId: text('bidder_expert_id').notNull().references(() => agents.id),
+  bidScore: integer('bid_score').notNull().default(0),
+  reason: text('begruendung'),
+  estimatedMinutes: integer('estimated_minutes'),
+  status: text('status').notNull().default('pending'),
+  announcerAgentId: text('announcer_expert_id').references(() => agents.id),
+  createdAt: text('erstellt_am').notNull(),
+  completedAt: text('abgeschlossen_am'),
+});
+
+// ===== Memory Embeddings =====
+export const memoryEmbeddings = pgTable('memory_embeddings', {
+  id: text('id').primaryKey(),
+  companyId: text('unternehmen_id').notNull(),
+  agentId: text('expert_id'),
+  source: text('quelle').notNull().default('manual'),
+  quelleId: text('quelle_id'),
+  chunkText: text('chunk_text').notNull(),
+  embeddingJson: text('embedding_json').notNull(),
+  model: text('model').notNull().default('openai/text-embedding-3-small'),
+  tokenCount: integer('token_count').default(0),
+  charCount: integer('char_count').notNull().default(0),
+  tags: text('tags'),
+  createdAt: text('erstellt_am').notNull(),
+}, (t) => ({
+  idxUnternehmen: index('mem_emb_unternehmen_idx').on(t.companyId),
+  idxExpert: index('mem_emb_expert_idx').on(t.agentId),
+  idxQuelle: index('mem_emb_quelle_idx').on(t.source),
+}));
+
+// ===== Memory Conflicts =====
+export const memoryConflicts = pgTable('memory_conflicts', {
+  id: text('id').primaryKey(),
+  companyId: text('unternehmen_id').notNull().references(() => companies.id),
+  conflictingTriplesJson: text('conflicting_triples_json').notNull(),
+  conflictTyp: text('conflict_typ').notNull(),
+  beschreibung: text('beschreibung').notNull(),
+  status: text('status').notNull().default('open'),
+  resolution: text('resolution'),
+  resolvedByAgentId: text('resolved_by_expert_id').references(() => agents.id),
+  createdAt: text('erstellt_am').notNull(),
+  updatedAt: text('aktualisiert_am').notNull(),
+}, (t) => ({
+  idxUnternehmenStatus: index('mem_conflict_unternehmen_status_idx').on(t.companyId, t.status),
+}));
+
+// ===== Agent Messages (A2A Message Bus) =====
+export const agentMessages = pgTable('agent_messages', {
+  id: text('id').primaryKey(),
+  companyId: text('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  senderId: text('sender_id').notNull().references(() => agents.id, { onDelete: 'cascade' }),
+  recipientId: text('recipient_id').references(() => agents.id, { onDelete: 'cascade' }),
+  channel: text('channel'),
+  threadId: text('thread_id'),
+  type: text('type').notNull().default('direct'),
+  payload: text('payload').notNull(),
+  readAt: text('read_at'),
+  createdAt: text('created_at').notNull(),
+}, (t) => ({
+  idxCompany: index('agent_msg_company_idx').on(t.companyId),
+  idxSender: index('agent_msg_sender_idx').on(t.senderId),
+  idxRecipient: index('agent_msg_recipient_idx').on(t.recipientId),
+  idxThread: index('agent_msg_thread_idx').on(t.threadId),
+  idxChannel: index('agent_msg_channel_idx').on(t.channel),
+  idxRecipientRead: index('agent_msg_recipient_read_idx').on(t.recipientId, t.readAt),
+}));

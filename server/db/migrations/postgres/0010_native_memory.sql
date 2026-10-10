@@ -2,40 +2,40 @@
 -- Note: PostgreSQL does not support SQLite FTS5 virtual tables.
 -- Full-text search is handled via tsvector columns and GIN indexes where needed.
 
-CREATE TABLE IF NOT EXISTS palace_wings (
+CREATE TABLE IF NOT EXISTS palaceWings (
   id TEXT PRIMARY KEY,
-  unternehmen_id TEXT NOT NULL REFERENCES unternehmen(id),
-  expert_id TEXT NOT NULL REFERENCES experten(id),
+  unternehmen_id TEXT NOT NULL REFERENCES companies(id),
+  expert_id TEXT NOT NULL REFERENCES agents(id),
   name TEXT NOT NULL,
   erstellt_am TEXT NOT NULL,
   aktualisiert_am TEXT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_palace_wings_expert ON palace_wings(expert_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_palace_wings_expert ON palaceWings(expert_id);
 
-CREATE TABLE IF NOT EXISTS palace_drawers (
+CREATE TABLE IF NOT EXISTS palaceDrawers (
   id TEXT PRIMARY KEY,
-  wing_id TEXT NOT NULL REFERENCES palace_wings(id),
+  wing_id TEXT NOT NULL REFERENCES palaceWings(id),
   room TEXT NOT NULL,
   inhalt TEXT NOT NULL,
   erstellt_am TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_palace_drawers_wing ON palace_drawers(wing_id);
-CREATE INDEX IF NOT EXISTS idx_palace_drawers_room ON palace_drawers(wing_id, room);
+CREATE INDEX IF NOT EXISTS idx_palace_drawers_wing ON palaceDrawers(wing_id);
+CREATE INDEX IF NOT EXISTS idx_palace_drawers_room ON palaceDrawers(wing_id, room);
 
-CREATE TABLE IF NOT EXISTS palace_diary (
+CREATE TABLE IF NOT EXISTS palaceDiary (
   id TEXT PRIMARY KEY,
-  wing_id TEXT NOT NULL REFERENCES palace_wings(id),
+  wing_id TEXT NOT NULL REFERENCES palaceWings(id),
   datum TEXT NOT NULL,
   thought TEXT,
   action TEXT,
   knowledge TEXT,
   erstellt_am TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_palace_diary_wing ON palace_diary(wing_id);
+CREATE INDEX IF NOT EXISTS idx_palace_diary_wing ON palaceDiary(wing_id);
 
-CREATE TABLE IF NOT EXISTS palace_kg (
+CREATE TABLE IF NOT EXISTS palaceKg (
   id TEXT PRIMARY KEY,
-  unternehmen_id TEXT NOT NULL REFERENCES unternehmen(id),
+  unternehmen_id TEXT NOT NULL REFERENCES companies(id),
   subject TEXT NOT NULL,
   predicate TEXT NOT NULL,
   object TEXT NOT NULL,
@@ -44,5 +44,5 @@ CREATE TABLE IF NOT EXISTS palace_kg (
   erstellt_von TEXT,
   erstellt_am TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_palace_kg_subject ON palace_kg(subject);
-CREATE INDEX IF NOT EXISTS idx_palace_kg_company ON palace_kg(unternehmen_id);
+CREATE INDEX IF NOT EXISTS idx_palace_kg_subject ON palaceKg(subject);
+CREATE INDEX IF NOT EXISTS idx_palace_kg_company ON palaceKg(unternehmen_id);
