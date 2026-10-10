@@ -33,7 +33,7 @@ export function SkeletonCard({ lines = 3, header = true }: SkeletonCardProps) {
       style={{
         background: 'var(--color-bg-elevated)',
         border: '1px solid var(--color-border)',
-        borderRadius: 0,
+        borderRadius: 'var(--radius-md)',
         padding: '1.5rem',
         display: 'flex',
         flexDirection: 'column',

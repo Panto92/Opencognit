@@ -111,3 +111,8 @@ docs/SOCIAL_POST_Facebook.md
 # Playwright E2E test results
 test-results/
 playwright-report/
+
+# Local agent tooling & scratch scripts
+.agents/
+scratch/
+server/db/migrations/postgres_backup/

@@ -95,4 +95,4 @@ The agent is automatically woken up and starts working.
 
 ## License
 
-AGPL-3.0 — same as OpenCognit.
+MIT — same as OpenCognit.

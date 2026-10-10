@@ -63,6 +63,12 @@ function execKimiWithStdin(
     child.on('close', (code) => {
       clearTimeout(timer);
       if (!killed) {
+        if (code !== 0) {
+          const err: any = new Error(stderr.trim() || stdout.trim() || `kimi exited with code ${code}`);
+          err.exitCode = code;
+          reject(err);
+          return;
+        }
         resolve({ stdout, stderr });
       }
     });
@@ -150,10 +156,10 @@ export class KimiCLIAdapter implements Adapter {
     const workDir = resolveAgentWorkdir(config.workspacePath, this.options.workingDir);
 
     try {
-      // Kimi CLI non-interactive via stdin (avoids E2BIG & tag parsing issues)
-      const escapedPrompt = escapeKimiTags(prompt);
-
-      const args = ['--input-format', 'text', '--quiet', '--work-dir', workDir];
+      // Kimi CLI 2.x non-interactive: `-p <prompt>` (print mode) runs tools autonomously and prints
+      // the response. NOTE: `-p` cannot be combined with `--auto`/`--yolo` (CLI rejects it).
+      // cwd is set via spawn — there is no --work-dir flag.
+      const args = ['--output-format', 'text', '-p', prompt];
       if (this.options.model) {
         args.push('--model', this.options.model);
       }
@@ -161,7 +167,7 @@ export class KimiCLIAdapter implements Adapter {
       const { stdout, stderr } = await execKimiWithStdin(
         this.resolveKimiPath(),
         args,
-        escapedPrompt,
+        '',
         {
           cwd: workDir,
           timeout: this.options.maxExecutionTimeMs ?? 120000,
@@ -336,8 +342,9 @@ export class KimiCLIAdapter implements Adapter {
 }
 
 /**
- * Kimi CLI interprets [TAG]...[/TAG] as its own tag system.
- * We replace square brackets with «» to prevent parsing errors.
+ * Escape helper for stdin-based invocations of older kimi CLI versions.
+ * Currently unused: prompts are passed via `-p` argv (no stdin tag parsing).
+ * Kept for the interactive/stdin path if it ever returns.
  */
 function escapeKimiTags(prompt: string): string {
   return prompt.replace(/\[/g, '«').replace(/\]/g, '»');
@@ -349,14 +356,12 @@ function escapeKimiTags(prompt: string): string {
  */
 export async function runKimiDirectChat(prompt: string, expertId: string): Promise<string> {
   const kimiPath = resolveCliPath('kimi', 'KIMI_PATH', 'kimi');
-  // Escape Kimi tag chars only (stdin avoids shell escaping issues)
-  const escapedPrompt = escapeKimiTags(prompt);
 
   try {
     const { stdout, stderr } = await execKimiWithStdin(
       kimiPath,
-      ['--input-format', 'text', '--quiet'],
-      escapedPrompt,
+      ['--output-format', 'text', '-p', prompt],
+      '',
       {
         cwd: SAFE_DEFAULT_WORKDIR,
         timeout: 5 * 60 * 1000,

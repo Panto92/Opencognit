@@ -1,9 +1,9 @@
 -- Migration 0032: Work Cycle Archive (PostgreSQL)
 
-CREATE TABLE IF NOT EXISTS arbeitszyklen_archiv (
+CREATE TABLE IF NOT EXISTS workCyclesArchive (
   id TEXT PRIMARY KEY,
-  unternehmen_id TEXT NOT NULL REFERENCES unternehmen(id),
-  expert_id TEXT NOT NULL REFERENCES experten(id),
+  unternehmen_id TEXT NOT NULL REFERENCES companies(id),
+  expert_id TEXT NOT NULL REFERENCES agents(id),
   archiv_datum TEXT NOT NULL,
   zyklus_anzahl INTEGER NOT NULL DEFAULT 0,
   erfolgreich_anzahl INTEGER NOT NULL DEFAULT 0,
@@ -18,5 +18,5 @@ CREATE TABLE IF NOT EXISTS arbeitszyklen_archiv (
   UNIQUE(unternehmen_id, expert_id, archiv_datum)
 );
 
-CREATE INDEX IF NOT EXISTS archiv_unternehmen_datum_idx ON arbeitszyklen_archiv(unternehmen_id, archiv_datum);
-CREATE INDEX IF NOT EXISTS archiv_expert_idx ON arbeitszyklen_archiv(expert_id, archiv_datum);
+CREATE INDEX IF NOT EXISTS archiv_unternehmen_datum_idx ON workCyclesArchive(unternehmen_id, archiv_datum);
+CREATE INDEX IF NOT EXISTS archiv_expert_idx ON workCyclesArchive(expert_id, archiv_datum);

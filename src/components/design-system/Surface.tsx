@@ -51,7 +51,7 @@ export function Surface({
       style={{
         position: 'relative',
         overflow: 'hidden',
-        borderRadius: 0,
+        borderRadius: 'var(--radius-md)',
         padding: pad,
         cursor: onClick ? 'pointer' : 'default',
         transition: 'background 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease, border-color 0.25s ease',

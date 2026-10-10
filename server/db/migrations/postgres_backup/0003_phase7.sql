@@ -1,15 +1,15 @@
 -- Migration 0003 — Phase 7: Projects-Ebene + Agent Permissions
 
 -- ===== Projekte =====
-CREATE TABLE IF NOT EXISTS projekte (
+CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
-  unternehmen_id TEXT NOT NULL REFERENCES unternehmen(id),
+  unternehmen_id TEXT NOT NULL REFERENCES companies(id),
   name TEXT NOT NULL,
   beschreibung TEXT,
   status TEXT NOT NULL DEFAULT 'aktiv',
   prioritaet TEXT NOT NULL DEFAULT 'medium',
-  ziel_id TEXT REFERENCES ziele(id),
-  eigentuemer_id TEXT REFERENCES experten(id),
+  ziel_id TEXT REFERENCES goals(id),
+  eigentuemer_id TEXT REFERENCES agents(id),
   farbe TEXT NOT NULL DEFAULT '#23CDCB',
   deadline TEXT,
   fortschritt INTEGER NOT NULL DEFAULT 0,
@@ -17,12 +17,12 @@ CREATE TABLE IF NOT EXISTS projekte (
   aktualisiert_am TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_projekte_unternehmen ON projekte(unternehmen_id, status);
+CREATE INDEX IF NOT EXISTS idx_projekte_unternehmen ON projects(unternehmen_id, status);
 
 -- ===== Agent Permissions =====
-CREATE TABLE IF NOT EXISTS agent_permissions (
+CREATE TABLE IF NOT EXISTS agentPermissions (
   id TEXT PRIMARY KEY,
-  expert_id TEXT NOT NULL REFERENCES experten(id),
+  expert_id TEXT NOT NULL REFERENCES agents(id),
   darf_aufgaben_erstellen BOOLEAN NOT NULL DEFAULT TRUE,
   darf_aufgaben_zuweisen BOOLEAN NOT NULL DEFAULT FALSE,
   darf_genehmigungen_anfordern BOOLEAN NOT NULL DEFAULT TRUE,

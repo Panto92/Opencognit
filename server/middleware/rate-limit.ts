@@ -74,7 +74,7 @@ export function companyRateLimit(opts: CompanyRateLimitOptions) {
   const { windowMs, maxRequests, message = 'Tenant rate limit exceeded. Please slow down.' } = opts;
 
   return (req: any, res: any, next: any) => {
-    const companyId = req.companyId || req.headers['x-company-id'] || (req as AuthRequest).companyMembership?.companyId;
+    const companyId = req.companyId || req.headers['x-company-id'] || (req as any).companyMembership?.companyId;
     if (!companyId) {
       // No company context — fall through (e.g. system endpoints)
       return next();

@@ -1,1509 +1,373 @@
-import { useState, useEffect, useRef, useCallback, useTransition, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
-  Send, ChevronDown, User, Loader2, AlertCircle,
-  Brain, ChevronRight, Paperclip, X, ImageIcon,
-  Plus, History, Trash2, Sparkles, FileText, Copy,
-  Activity, Users, ListChecks, Target, Wallet, HelpCircle, AlertTriangle, Cpu
+  PanelLeft, Plus, Search, Pin, PinOff, Pencil, Trash2, MessageSquare, ChevronDown, Hammer, Bug, ScanSearch, FlaskConical, BookOpen, Recycle,
 } from 'lucide-react';
-import { useCompany } from '../hooks/useCompany';
 import { useI18n } from '../i18n';
-import { useWebSocketEvent } from '../hooks/useWebSocket';
-import AgentPlan from '../components/chat/AgentPlan';
-import type { PlanTask } from '../components/chat/AgentPlan';
-import AgentInbox from '../components/chat/AgentInbox';
-import { MissionPrompt } from '../components/MissionPrompt';
+import { useCompany } from '../hooks/useCompany';
+import { useAuth } from '../hooks/useAuth';
+import { apiAgents } from '@/api/agents';
+import type { Experte } from '@/api/types';
+import { AgentOrb } from '../components/design-system';
+import AnimatedSphere from '../components/agent-chat/AnimatedSphere';
+import ChatMessage from '../components/agent-chat/ChatMessage';
+import ChatInput, { type ChatInputHandle, type PastedContent } from '../components/agent-chat/ChatInput';
+import type { ChatMessage as Message, Conversation, ThinkingStep } from '../components/agent-chat/types';
+import { streamChat, stepLabel, ChatUnavailableError } from '../components/agent-chat/streamChat';
 
-/* ─── Pure inline styles ─ no tailwind dependency for visuals ─────────── */
+// Agent chat — conversation sidebar, header with the agent, welcome screen with sphere and quick
+// actions, messages with the live reasoning timeline, Claude-style input.
+// Each conversation runs on a real coding CLI (POST /api/agents/:id/cli-chat) — Claude Code resumes
+// its session per message; other CLIs get the conversation so far as plain text with every message.
+// The list and the rendered messages are kept per browser. Chat turns are read-only — changes to
+// code go through tasks with review and approval.
+// Ported from the relaunch's Chat page; project picker, roles API and Direct mode are
+// relaunch-only and intentionally not part of this port.
 
-const C = {
-  bg: '#0a0a0a',
-  surface: 'rgba(255,255,255,0.03)',
-  surfaceHover: 'rgba(255,255,255,0.06)',
-  border: 'rgba(255,255,255,0.06)',
-  borderHover: 'rgba(255,255,255,0.12)',
-  gold: '#c5a059',
-  goldDim: 'rgba(197,160,89,0.15)',
-  goldGlow: 'rgba(197,160,89,0.25)',
-  text: '#e8e4dc',
-  textMuted: '#7a7268',
-  textDim: '#3a342c',
-  success: '#7cb97a',
-  white: '#ffffff',
-};
+const STORE_KEY = 'oc_agent_chat_v1';
 
-const round = (r: number) => ({ borderRadius: r });
-const flex = (dir: 'row' | 'column' = 'row', opts?: { center?: boolean; between?: boolean; end?: boolean; wrap?: boolean }) => ({
-  display: 'flex', flexDirection: dir,
-  ...(opts?.center ? { alignItems: 'center', justifyContent: 'center' } : {}),
-  ...(opts?.between ? { alignItems: 'center', justifyContent: 'space-between' } : {}),
-  ...(opts?.end ? { alignItems: 'flex-end' } : {}),
-  ...(opts?.wrap ? { flexWrap: 'wrap' as const } : {}),
-});
+interface Stored { conversations: Conversation[]; messages: Record<string, Message[]> }
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
-function authHeaders(extra: Record<string, string> = {}) {
-  const token = localStorage.getItem('opencognit_token');
-  return { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...extra };
-}
-
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-}
-
-function fmtDate(iso: string) {
-  const d = new Date(iso);
-  const diff = Date.now() - d.getTime();
-  const days = Math.floor(diff / 86400000);
-  if (days === 0) return 'Today';
-  if (days === 1) return 'Yesterday';
-  if (days < 7) return d.toLocaleDateString('en-US', { weekday: 'long' });
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve((reader.result as string).split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-const STORAGE_KEY = 'opencognit_chat_sessions';
-
-function loadSessions(agentId: string): ChatSession[] {
+function loadStore(): Stored {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    return (JSON.parse(raw) as Record<string, ChatSession[]>)[agentId] ?? [];
-  } catch { return []; }
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* storage unavailable or corrupt */ }
+  return { conversations: [], messages: {} };
+}
+function saveStore(s: Stored) {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch { /* storage unavailable */ }
 }
 
-function saveSessions(agentId: string, sessions: ChatSession[]) {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const all = raw ? JSON.parse(raw) as Record<string, ChatSession[]> : {};
-    all[agentId] = sessions.slice(0, 50);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
-  } catch { /* quota */ }
-}
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
-// ── types ─────────────────────────────────────────────────────────────────────
-
-interface Agent {
-  id: string; name: string; rolle: string;
-  avatar: string; avatarFarbe: string;
-  isOrchestrator?: boolean; status: string;
-  connectionType?: string;
-  model?: string;
-  monthlySpendCent?: number;
-  monthlyBudgetCent?: number;
-}
-
-interface PendingImage {
-  data: string; mimeType: string; name: string; previewUrl: string;
-}
-
-interface Message {
-  id: string; role: 'user' | 'agent' | 'system';
-  text: string; thinking?: string;
-  images?: string[]; streaming?: boolean; time: string;
-  plan?: PlanTask[];
-  tokens?: { input: number; output: number; costCents: number; model?: string };
-}
-
-interface SessionStats {
-  messages: number;
-  inputTokens: number;
-  outputTokens: number;
-  costCents: number;
-}
-
-interface ChatSession {
-  id: string; title: string; createdAt: string; messages: Message[];
-}
-
-interface Cmd {
-  icon: React.ReactNode; label: string; desc: string; prefix: string;
-}
-
-// ── Slash commands ──────────────────────────────────────────────────────────
-// Each command expands into a prompt template. The CEO has tool-use, so the
-// templates ask for live data instead of bundling it client-side. This keeps
-// the data fresh and lets the LLM decide *how* to format the answer.
-interface SlashCmd {
-  cmd: string;
-  icon: React.ReactNode;
-  label: { de: string; en: string };
-  desc: { de: string; en: string };
-  prompt: { de: string; en: string };
-}
-
-const SLASH_COMMANDS: SlashCmd[] = [
-  {
-    cmd: '/status',
-    icon: <Activity size={13} />,
-    label: { de: 'Status-Snapshot', en: 'Status snapshot' },
-    desc: { de: 'Aktueller Überblick: Agents, Tasks, Blocker', en: 'Current overview: agents, tasks, blockers' },
-    prompt: {
-      de: 'Gib mir einen prägnanten aktuellen Status-Überblick: aktive/idle Agents, offene und blockierte Tasks, kritische Punkte. Nutze deine Tools wenn nötig.',
-      en: 'Give me a concise current status overview: active/idle agents, open and blocked tasks, critical issues. Use your tools if needed.',
-    },
-  },
-  {
-    cmd: '/agents',
-    icon: <Users size={13} />,
-    label: { de: 'Agenten-Liste', en: 'List agents' },
-    desc: { de: 'Alle Agenten mit Rolle und Status', en: 'All agents with role and status' },
-    prompt: {
-      de: 'Liste alle Agenten dieses Unternehmens auf — mit Name, Rolle, Status und der aktuellen Aufgabe falls vorhanden.',
-      en: 'List all agents in this company — with name, role, status, and their current task if any.',
-    },
-  },
-  {
-    cmd: '/tasks',
-    icon: <ListChecks size={13} />,
-    label: { de: 'Offene Tasks', en: 'Open tasks' },
-    desc: { de: 'Aktive Tasks priorisiert nach Dringlichkeit', en: 'Active tasks prioritized by urgency' },
-    prompt: {
-      de: 'Zeig mir die offenen Tasks (todo, in_progress, blocked, in_review) sortiert nach Priorität. Hebe Blocker und überfällige Items hervor.',
-      en: 'Show me the open tasks (todo, in_progress, blocked, in_review) sorted by priority. Highlight blockers and overdue items.',
-    },
-  },
-  {
-    cmd: '/blockers',
-    icon: <AlertTriangle size={13} />,
-    label: { de: 'Blocker', en: 'Blockers' },
-    desc: { de: 'Was hängt aktuell und warum', en: 'What\'s currently stuck and why' },
-    prompt: {
-      de: 'Was sind aktuell unsere kritischsten Blocker? Welche Tasks hängen wovon ab, was muss als nächstes entschieden werden?',
-      en: 'What are our most critical blockers right now? Which tasks depend on what, and what needs to be decided next?',
-    },
-  },
-  {
-    cmd: '/goals',
-    icon: <Target size={13} />,
-    label: { de: 'Unternehmensziele', en: 'Company goals' },
-    desc: { de: 'Ziele und Fortschritt', en: 'Goals and progress' },
-    prompt: {
-      de: 'Was sind unsere Unternehmensziele und wie ist der aktuelle Fortschritt? Welche Tasks tragen darauf ein?',
-      en: 'What are our company goals and what\'s the current progress? Which tasks contribute to them?',
-    },
-  },
-  {
-    cmd: '/budget',
-    icon: <Wallet size={13} />,
-    label: { de: 'Budget-Status', en: 'Budget status' },
-    desc: { de: 'Token-Verbrauch und Kosten', en: 'Token usage and costs' },
-    prompt: {
-      de: 'Wie steht es um die Token-Budgets der Agenten? Wer ist nahe am Limit, wo könnten wir Kosten reduzieren?',
-      en: 'How are the agent token budgets looking? Who\'s close to the limit, where could we reduce costs?',
-    },
-  },
-  {
-    cmd: '/help',
-    icon: <HelpCircle size={13} />,
-    label: { de: 'Slash-Befehle', en: 'Slash commands' },
-    desc: { de: 'Liste aller verfügbaren Befehle', en: 'List of available commands' },
-    prompt: { de: '__HELP__', en: '__HELP__' },
-  },
-];
-
-interface CEOStep {
-  id: string;
-  type: string;
-  title: string;
-  details?: string;
-  time: string;
-}
-
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-function Dots() {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', marginLeft: 6, gap: 3 }}>
-      {[0, 1, 2].map(i => (
-        <motion.span
-          key={i}
-          style={{ width: 5, height: 5, borderRadius: 9999, background: C.gold }}
-          animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1.1, 0.8] }}
-          transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.15, ease: 'easeInOut' }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function ThinkingBlock({ text, streaming }: { text: string; streaming?: boolean }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div style={{ marginBottom: 8, border: `1px solid ${C.goldDim}`, background: 'rgba(197,160,89,0.02)', ...round(10) }}>
-      <button onClick={() => setOpen(!open)} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '8px 12px', background: 'transparent', border: 'none', color: C.gold, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--font-mono)', letterSpacing: '0.06em' }}>
-        <Brain size={12} />
-        <span>{streaming ? 'Thinking…' : 'Chain of thought'}</span>
-        {streaming && <motion.span style={{ width: 6, height: 6, borderRadius: 9999, background: C.gold, marginLeft: 4 }} animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1, repeat: Infinity }} />}
-        <ChevronRight size={12} style={{ marginLeft: 'auto', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
-      </button>
-      {open && (
-        <div style={{ padding: '8px 14px', borderTop: `1px solid ${C.goldDim}`, fontSize: 12, color: C.textMuted, fontFamily: 'var(--font-mono)', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 300, overflowY: 'auto' }}>
-          {text}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── FileCard: rendered inline for [FILE]path[/FILE] markers ───────────────────
-
-function FileCard({ relPath, unternehmenId }: { relPath: string; unternehmenId: string }) {
-  const [open, setOpen] = useState(false);
-  const [data, setData] = useState<{ content: string; size: number; binary: boolean; absPath: string } | null>(null);
-  const [err, setErr] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-
-  const load = async () => {
-    if (data || loading) return;
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/files/read?path=${encodeURIComponent(relPath)}`, {
-        headers: authHeaders({ 'x-unternehmen-id': unternehmenId }),
-      });
-      const j = await res.json();
-      if (!res.ok) setErr(j.error || 'error');
-      else setData(j);
-    } catch { setErr('network'); }
-    finally { setLoading(false); }
-  };
-
-  const toggle = () => { if (!open) load(); setOpen(!open); };
-  const fmtSize = (n: number) => n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n/1024).toFixed(1)} KB` : `${(n/1024/1024).toFixed(2)} MB`;
-  const copyPath = (e: React.MouseEvent) => { e.stopPropagation(); navigator.clipboard.writeText(data?.absPath || relPath); };
-
-  return (
-    <div style={{ margin: '10px 0', border: `1px solid ${C.goldDim}`, background: 'rgba(197,160,89,0.03)', ...round(10), overflow: 'hidden' }}>
-      <button onClick={toggle} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 12px', background: 'transparent', border: 'none', color: C.text, cursor: 'pointer', fontSize: 13, textAlign: 'left' }}>
-        <FileText size={14} style={{ color: C.gold, flexShrink: 0 }} />
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{relPath}</span>
-        {data && <span style={{ fontSize: 10, color: C.textMuted, fontFamily: 'var(--font-mono)' }}>{fmtSize(data.size)}</span>}
-        <button onClick={copyPath} title="Pfad kopieren" style={{ background: 'none', border: 'none', padding: 2, color: C.textMuted, cursor: 'pointer', display: 'flex' }}><Copy size={11} /></button>
-        <ChevronRight size={13} style={{ color: C.gold, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
-      </button>
-      {open && (
-        <div style={{ borderTop: `1px solid ${C.goldDim}`, padding: '10px 12px', maxHeight: 360, overflowY: 'auto' }}>
-          {loading && <div style={{ color: C.textMuted, fontSize: 12 }}>Loading…</div>}
-          {err && <div style={{ color: '#e0856b', fontSize: 12 }}>❌ {err}</div>}
-          {data && data.binary && <div style={{ color: C.textMuted, fontSize: 12, fontStyle: 'italic' }}>Binärdatei — Vorschau nicht verfügbar</div>}
-          {data && !data.binary && (
-            <pre style={{ margin: 0, fontSize: 11.5, fontFamily: 'var(--font-mono)', color: C.text, whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5 }}>{data.content}</pre>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-const FILE_RE = /\[FILE\]([^\[\n]+?)\[\/FILE\]/g;
-
-function renderTextWithFiles(text: string, unternehmenId: string) {
-  const parts: React.ReactNode[] = [];
-  let lastIdx = 0;
-  let m: RegExpExecArray | null;
-  let key = 0;
-  FILE_RE.lastIndex = 0;
-  while ((m = FILE_RE.exec(text)) !== null) {
-    if (m.index > lastIdx) parts.push(<span key={`t-${key++}`}>{text.slice(lastIdx, m.index)}</span>);
-    parts.push(<FileCard key={`f-${key++}`} relPath={m[1].trim()} unternehmenId={unternehmenId} />);
-    lastIdx = m.index + m[0].length;
-  }
-  if (lastIdx < text.length) parts.push(<span key={`t-${key++}`}>{text.slice(lastIdx)}</span>);
-  return parts.length ? parts : text;
-}
-
-/** Extract [PLAN]{...}[/PLAN] blocks from text and return cleaned text + parsed plan */
-function extractPlan(text: string): { cleanedText: string; plan?: PlanTask[] } {
-  const planRegex = /\[PLAN\]([\s\S]*?)\[\/PLAN\]/g;
-  let match: RegExpExecArray | null;
-  let cleanedText = text;
-  let plan: PlanTask[] | undefined;
-
-  while ((match = planRegex.exec(text)) !== null) {
-    try {
-      const parsed = JSON.parse(match[1].trim());
-      if (Array.isArray(parsed.tasks)) {
-        plan = parsed.tasks;
-      } else if (Array.isArray(parsed)) {
-        plan = parsed;
-      }
-      cleanedText = cleanedText.replace(match[0], '').trim();
-    } catch { /* ignore invalid JSON */ }
-  }
-  return { cleanedText, plan };
-}
-
-// ── Main ──────────────────────────────────────────────────────────────────────
-
-function newSession(): ChatSession {
-  return { id: `s-${Date.now()}`, title: 'New chat', createdAt: new Date().toISOString(), messages: [] };
-}
+const fill = (s: string, vars: Record<string, string>) =>
+  Object.entries(vars).reduce((acc, [k, v]) => acc.split(`{${k}}`).join(v), s);
 
 export function Chat() {
-  const { t } = useI18n();
-  const { aktivesUnternehmen } = useCompany();
-  const { language } = useI18n();
+  const { language, t } = useI18n();
   const de = language === 'de';
+  const location = useLocation();
+  const { aktivesUnternehmen } = useCompany();
+  const { benutzer } = useAuth();
+  const firstName = (benutzer?.name ?? '').trim().split(/\s+/)[0] || '';
 
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [currentSession, setCurrentSession] = useState<ChatSession>(newSession);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const [streaming, setStreaming] = useState(false);
-  const [streamError, setStreamError] = useState(false);
-  const [sessionStats, setSessionStats] = useState<SessionStats>({ messages: 0, inputTokens: 0, outputTokens: 0, costCents: 0 });
-  const [slashIdx, setSlashIdx] = useState(0);
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'chat' | 'inbox'>('chat');
-  const [modelInput, setModelInput] = useState('');
-  const [modelSaving, setModelSaving] = useState(false);
-  const [modelError, setModelError] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [loadingAgents, setLoadingAgents] = useState(true);
-  const [pendingImage, setPendingImage] = useState<PendingImage | null>(null);
-  const [showMissionPrompt, setShowMissionPrompt] = useState(false);
+  const [store, setStore] = useState<Stored>(loadStore);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [inputFocused, setInputFocused] = useState(false);
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  const [ceoSteps, setCeoSteps] = useState<CEOStep[]>([]);
-  const [stepsOpen, setStepsOpen] = useState(false);
-
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [search, setSearch] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState('');
+  const [input, setInput] = useState('');
+  const [agents, setAgents] = useState<Experte[]>([]);
+  const [agentId, setAgentId] = useState<string>('');
+  const [agentMenu, setAgentMenu] = useState(false);
+  const [streamingId, setStreamingId] = useState<string | null>(null);
+  const [liveSteps, setLiveSteps] = useState<ThinkingStep[]>([]);
   const abortRef = useRef<AbortController | null>(null);
+  const inputRef = useRef<ChatInputHandle>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => saveStore(store), [store]);
 
   useEffect(() => {
-    const h = (e: MouseEvent) => setMousePos({ x: e.clientX, y: e.clientY });
-    window.addEventListener('mousemove', h);
-    return () => window.removeEventListener('mousemove', h);
-  }, []);
-
-  // CEO Arbeitsschritte über WebSocket empfangen — als Inline-Chat-Nachrichten anzeigen
-  useWebSocketEvent('trace', (msg) => {
-    const d = msg.data ?? msg;
-    if (d.expertId === selectedAgent?.id) {
-      setCeoSteps(prev => {
-        const next = [...prev, {
-          id: d.id || `s-${Date.now()}`,
-          type: d.typ || d.type || 'info',
-          title: d.titel || d.title || '',
-          details: d.details || '',
-          time: d.erstelltAm || new Date().toISOString(),
-        }];
-        return next.slice(-50);
-      });
-      // Füge als System-Nachricht im Chat-Verlauf hinzu
-      const stepText = d.details ? `${d.titel || d.title}\n${d.details}` : (d.titel || d.title || '');
-      if (stepText) {
-        setMessages(prev => {
-          const last = prev[prev.length - 1];
-          // Wenn die letzte Nachricht eine System-Nachricht mit derselben ID ist, ersetze sie
-          if (last && last.role === 'system' && last.id === `step-${d.id}`) {
-            return [...prev.slice(0, -1), { ...last, text: stepText, time: new Date().toISOString() }];
-          }
-          return [...prev, { id: `step-${d.id || Date.now()}`, role: 'system', text: stepText, time: new Date().toISOString() }];
-        });
-      }
-    }
-  }, [selectedAgent?.id]);
-
-  // Steps zurücksetzen wenn Agent wechselt
-  useEffect(() => { setCeoSteps([]); }, [selectedAgent?.id]);
-
-  const loadAgents = useCallback(() => {
     if (!aktivesUnternehmen) return;
-    setLoadingAgents(true);
-    const ctrl = new AbortController();
-    fetch(`/api/unternehmen/${aktivesUnternehmen.id}/experten`, { credentials: 'include', headers: authHeaders(), signal: ctrl.signal })
-      .then(r => r.json())
-      .then((data: Agent[]) => {
-        const ceos = data.filter(a => a.isOrchestrator);
-        setAgents(ceos);
-        if (ceos[0]) setSelectedAgent(ceos[0]);
-        else setSelectedAgent(null);
-        // Show mission prompt if no CEOs and we're done loading
-        if (ceos.length === 0) {
-          // Check URL param for onboard mode
-          const params = new URLSearchParams(window.location.search);
-          if (params.get('onboard') === '1') {
-            setShowMissionPrompt(true);
-            // Clean URL
-            window.history.replaceState({}, '', '/chat');
-          }
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoadingAgents(false));
-    return () => ctrl.abort();
+    apiAgents.liste(aktivesUnternehmen.id).then((list) => {
+      setAgents(list);
+      // The CEO (orchestrator) first, else an agent whose CLI can chat, else the first agent.
+      const pick = list.find((a) => a.isOrchestrator) ?? list.find((a) => isChatCli(a.verbindungsTyp)) ?? list[0];
+      // An agent handed over from elsewhere (agent view → "Open chat") wins over the default pick.
+      const wanted = (location.state as { agentId?: string } | null)?.agentId;
+      const handed = wanted && list.some((a) => a.id === wanted) ? wanted : '';
+      setAgentId((cur) => handed || cur || pick?.id || '');
+    }).catch(() => setAgents([]));
   }, [aktivesUnternehmen?.id]);
 
-  useEffect(() => {
-    loadAgents();
-  }, [loadAgents]);
+  const agent = agents.find((a) => a.id === agentId);
+  const activeConv = activeId ? store.conversations.find((c) => c.id === activeId) : undefined;
+  const messages = activeId ? store.messages[activeId] ?? [] : [];
+  const started = messages.length > 0;
 
-  useEffect(() => {
-    if (!selectedAgent || !aktivesUnternehmen) return;
-    abortRef.current?.abort();
-    setStreaming(false);
-    if (currentSession.messages.some(m => m.role !== 'system')) {
-      saveSessions(selectedAgent.id, [currentSession, ...sessions.filter(s => s.id !== currentSession.id)]);
-    }
-    const agentSessions = loadSessions(selectedAgent.id);
-    setSessions(agentSessions);
-    const fresh = newSession();
-    setCurrentSession(fresh);
-    setSessionStats({ messages: 0, inputTokens: 0, outputTokens: 0, costCents: 0 });
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [messages.length, liveSteps.length]);
+  useEffect(() => () => abortRef.current?.abort(), []);
 
-    const welcomeMsg: Message = { id: 'welcome', role: 'system', text: t('autoGenerated.chattingWithSelectedagentname'), time: new Date().toISOString() };
-    setMessages([welcomeMsg]);
+  const greeting = () => {
+    const h = new Date().getHours();
+    const base = h < 5 || h >= 22 ? t.chat.greetingLate : h < 12 ? t.chat.greetingMorning : h < 18 ? t.chat.greetingDay : t.chat.greetingEvening;
+    return firstName ? `${firstName}, ${base}` : base.charAt(0).toUpperCase() + base.slice(1);
+  };
 
-    // Load server-side chat history so messages survive refresh
-    const historyCtrl = new AbortController();
-    fetch(`/api/experten/${selectedAgent.id}/chat`, {
-      credentials: 'include',
-      headers: authHeaders({ 'x-unternehmen-id': aktivesUnternehmen.id }),
-      signal: historyCtrl.signal,
-    })
-      .then(r => r.json())
-      .then((data: any[]) => {
-        if (!Array.isArray(data) || data.length === 0) return;
-        const serverMsgs: Message[] = data.map(m => {
-          const { cleanedText, plan } = extractPlan(m.message || '');
-          return {
-            id: m.id,
-            role: m.senderType === 'board' ? 'user' : m.senderType === 'agent' ? 'agent' : 'system',
-            text: cleanedText,
-            plan,
-            time: m.createdAt || new Date().toISOString(),
-          };
-        });
-        const next = [welcomeMsg, ...serverMsgs];
-        setMessages(next);
-        setCurrentSession(prev => ({ ...prev, messages: next }));
-      })
-      .catch(() => {});
-    return () => historyCtrl.abort();
-  }, [selectedAgent?.id, aktivesUnternehmen?.id]);
+  const quickActions = [
+    { icon: <Hammer size={14} />, label: t.chat.quickBuild, prompt: t.chat.quickBuildPrompt },
+    { icon: <Bug size={14} />, label: t.chat.quickFix, prompt: t.chat.quickFixPrompt },
+    { icon: <ScanSearch size={14} />, label: t.chat.quickReview, prompt: t.chat.quickReviewPrompt },
+    { icon: <FlaskConical size={14} />, label: t.chat.quickTests, prompt: t.chat.quickTestsPrompt },
+    { icon: <BookOpen size={14} />, label: t.chat.quickExplain, prompt: t.chat.quickExplainPrompt },
+    { icon: <Recycle size={14} />, label: t.chat.quickRefactor, prompt: t.chat.quickRefactorPrompt },
+  ];
 
-  const isMountedRef = useRef(true);
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => { isMountedRef.current = false; };
-  }, []);
+  const newChat = () => { setActiveId(null); setInput(''); inputRef.current?.focusEnd(); };
 
-  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (scrollTimeoutRef.current) return;
-    scrollTimeoutRef.current = setTimeout(() => {
-      scrollTimeoutRef.current = null;
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 300);
-    return () => { if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current); };
-  }, [messages, streaming]);
-  useEffect(() => { setCurrentSession(prev => ({ ...prev, messages })); }, [messages]);
+  const patchMessage = (convId: string, msgId: string, patch: (m: Message) => Message) =>
+    setStore((s) => ({ ...s, messages: { ...s.messages, [convId]: (s.messages[convId] ?? []).map((m) => (m.id === msgId ? patch(m) : m)) } }));
 
-  const persistSession = useCallback((msgs: Message[], session: ChatSession, agentId: string) => {
-    const userMsgs = msgs.filter(m => m.role === 'user');
-    if (!userMsgs.length) return;
-    const title = userMsgs[0].text.slice(0, 48) || 'Chat';
-    const updated: ChatSession = { ...session, title, messages: msgs };
-    setCurrentSession(updated);
-    setSessions(prev => {
-      const next = [updated, ...prev.filter(s => s.id !== updated.id)];
-      saveSessions(agentId, next);
+  const send = async ({ message, pasted }: { message: string; pasted: PastedContent[] }) => {
+    const text = [message.trim(), ...pasted.map((p) => '```\n' + p.content + '\n```')].filter(Boolean).join('\n\n');
+    if (!text || streamingId || !agentId) return;
+    const now = new Date().toISOString();
+    // Decide the ids up front: state updaters run later, so ids created inside them would not
+    // exist yet when we switch to the conversation.
+    const isNew = !activeId;
+    const convId = activeId ?? uid();
+    const answerId = uid();
+    const sessionId = isNew ? undefined : store.conversations.find((c) => c.id === convId)?.sessionId;
+    setStore((s) => {
+      const next = { conversations: [...s.conversations], messages: { ...s.messages } };
+      if (isNew) {
+        next.conversations.unshift({ id: convId, title: message.trim().slice(0, 60) || t.chat.newChat, agentId, updatedAt: now });
+      } else {
+        next.conversations = next.conversations.map((c) => (c.id === convId ? { ...c, updatedAt: now } : c));
+      }
+      next.messages[convId] = [
+        ...(next.messages[convId] ?? []),
+        { id: uid(), role: 'user', content: text, createdAt: now },
+        { id: answerId, role: 'assistant', content: '', createdAt: now, streaming: true },
+      ];
       return next;
     });
-  }, []);
+    setActiveId(convId);
+    setStreamingId(answerId);
+    setLiveSteps([]);
 
-  const startNewChat = useCallback(() => {
-    if (!selectedAgent) return;
-    if (currentSession.messages.some(m => m.role !== 'system')) {
-      setSessions(prev => { const next = [currentSession, ...prev.filter(s => s.id !== currentSession.id)]; saveSessions(selectedAgent.id, next); return next; });
-    }
-    const fresh = newSession();
-    setCurrentSession(fresh);
-    setSessionStats({ messages: 0, inputTokens: 0, outputTokens: 0, costCents: 0 });
-    setMessages([{ id: 'welcome', role: 'system', text: t('autoGenerated.chattingWithSelectedagentname'), time: new Date().toISOString() }]);
-    setInput(''); setPendingImage(null);
-    setTimeout(() => inputRef.current?.focus(), 50);
-  }, [selectedAgent, currentSession, de]);
-
-  const loadSession = useCallback((session: ChatSession) => {
-    abortRef.current?.abort(); setStreaming(false);
-    setCurrentSession(session); setMessages(session.messages);
-    // Recompute session stats from persisted message tokens
-    const stats = session.messages.reduce<SessionStats>((acc, m) => {
-      if (m.tokens) {
-        acc.inputTokens += m.tokens.input;
-        acc.outputTokens += m.tokens.output;
-        acc.costCents += m.tokens.costCents;
-      }
-      if (m.role === 'agent') acc.messages += 1;
-      return acc;
-    }, { messages: 0, inputTokens: 0, outputTokens: 0, costCents: 0 });
-    setSessionStats(stats);
-  }, []);
-
-  const deleteSession = useCallback((id: string) => {
-    if (!selectedAgent) return;
-    setSessions(prev => { const next = prev.filter(s => s.id !== id); saveSessions(selectedAgent.id, next); return next; });
-    if (currentSession.id === id) startNewChat();
-  }, [selectedAgent, currentSession.id, startNewChat]);
-
-  // ── Bootstrap from Mission Prompt ──────────────────────────────────────────
-  const handleBootstrap = useCallback((result: { ceoId: string; agents: any[]; projects: any[]; tasks: any[] }) => {
-    setShowMissionPrompt(false);
-    // Reload agents from server
-    loadAgents();
-    // Show success toast as system message
-    const welcomeText = t('autoGenerated.teamAssembledResultagentslengthAgentsRea');
-    setMessages([{ id: 'bootstrap-welcome', role: 'system', text: welcomeText, time: new Date().toISOString() }]);
-  }, [de, loadAgents]);
-
-  const setValue = (v: string) => {
-    setInput(v);
-    if (inputRef.current) {
-      inputRef.current.style.height = 'auto';
-      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 200) + 'px';
-    }
-  };
-
-  const pickImage = () => fileRef.current?.click();
-
-  const handleImageFile = async (file: File) => {
-    if (!file.type.startsWith('image/')) return;
-    const data = await fileToBase64(file);
-    const previewUrl = URL.createObjectURL(file);
-    setPendingImage({ data, mimeType: file.type, name: file.name, previewUrl });
-  };
-
-  // Revoke object URL when pendingImage changes or unmounts
-  useEffect(() => {
-    return () => {
-      if (pendingImage?.previewUrl) {
-        URL.revokeObjectURL(pendingImage.previewUrl);
-      }
-    };
-  }, [pendingImage?.previewUrl]);
-
-  const send = useCallback(async () => {
-    const txt = input.trim();
-    if ((!txt && !pendingImage) || streaming || !selectedAgent || !aktivesUnternehmen) return;
-    setInput(''); if (inputRef.current) inputRef.current.style.height = '60px';
-    const img = pendingImage; setPendingImage(null);
-    startTransition(() => setStreaming(true));
-
-    const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', text: txt, images: img ? [img.previewUrl] : undefined, time: new Date().toISOString() };
-    const thinkingMsgId = `thinking-${Date.now()}`;
-    const thinkingMsg: Message = { id: thinkingMsgId, role: 'system', text: t('autoGenerated.ceoAnalyzingRequest'), time: new Date().toISOString() };
-    const agentMsgId = `a-${Date.now()}`;
-    const agentPlaceholder: Message = { id: agentMsgId, role: 'agent', text: '', thinking: '', streaming: true, time: new Date().toISOString() };
-    setMessages(prev => [...prev, userMsg, thinkingMsg, agentPlaceholder]);
-
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const steps: ThinkingStep[] = [];
+    const texts: string[] = [];
+    let outcome: { status: string; error: string | null } = { status: 'completed', error: null };
+    const syncSteps = () => setLiveSteps(steps.map((st) => ({ ...st })));
     try {
-      const res = await fetch(`/api/experten/${selectedAgent.id}/chat/stream`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: authHeaders({ 'Content-Type': 'application/json', 'x-unternehmen-id': aktivesUnternehmen.id }),
-        body: JSON.stringify({ nachricht: txt, ...(img ? { image: { data: img.data, mimeType: img.mimeType } } : {}) }),
-        signal: ctrl.signal,
-      });
-      if (!res.ok || !res.body) throw new Error('stream_error');
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!isMountedRef.current) { ctrl.abort(); break; }
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const ev = JSON.parse(line.slice(6));
-            if (ev.type === 'thinking_start' || ev.type === 'thinking_delta') {
-              setMessages(prev => prev.map(m => {
-                if (m.id === agentMsgId) return { ...m, thinking: (m.thinking ?? '') + (ev.chunk ?? '') };
-                if (m.id === thinkingMsgId) return { ...m, text: t('autoGenerated.ceoProcessingRequest') };
-                return m;
-              }));
-            } else if (ev.type === 'tool_start') {
-              setMessages(prev => prev.map(m => m.id === thinkingMsgId ? { ...m, text: t('autoGenerated.ceoUsingTools') } : m));
-            } else if (ev.type === 'tool_call') {
-              const toolName = ev.tool || 'tool';
-              const toolMsg: Message = {
-                id: `tool-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                role: 'system',
-                text: `🔧 ${toolName}${ev.params ? `(${JSON.stringify(ev.params).slice(0, 120)})` : ''}`,
-                time: new Date().toISOString(),
-              };
-              setMessages(prev => [...prev, toolMsg]);
-            } else if (ev.type === 'tool_result') {
-              const resultMsg: Message = {
-                id: `toolres-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                role: 'system',
-                text: ev.success
-                  ? `✅ ${ev.tool}: ${(ev.output || '').slice(0, 300)}${(ev.output || '').length > 300 ? '…' : ''}`
-                  : `❌ ${ev.tool}: ${ev.error || 'failed'}`,
-                time: new Date().toISOString(),
-              };
-              setMessages(prev => [...prev, resultMsg]);
-            } else if (ev.type === 'text_delta') {
-              const chunk = (ev.chunk ?? '') as string;
-              // Hide incomplete [PLAN] blocks during streaming for cleaner UI
-              const cleanedChunk = chunk.replace(/\[PLAN\][\s\S]*/g, '').replace(/\[\/PLAN\]/g, '');
-              setMessages(prev => prev.filter(m => m.id !== thinkingMsgId).map(m => m.id === agentMsgId ? { ...m, text: m.text + cleanedChunk } : m));
-            } else if (ev.type === 'done') {
-              const final = ev.reply ?? '';
-              const { cleanedText, plan } = extractPlan(final || '');
-              const inputTok = Number(ev.inputTokens) || 0;
-              const outputTok = Number(ev.outputTokens) || 0;
-              const costC = Number(ev.costCents) || 0;
-              const modelStr = (ev.model as string | undefined) || selectedAgent.model;
-              const tokens = (inputTok + outputTok > 0 || costC > 0)
-                ? { input: inputTok, output: outputTok, costCents: costC, model: modelStr }
-                : undefined;
-              setMessages(prev => {
-                const next = prev.filter(m => m.id !== thinkingMsgId).map(m => m.id === agentMsgId ? { ...m, text: cleanedText || m.text, plan, streaming: false, tokens } : m);
-                persistSession(next, currentSession, selectedAgent.id);
-                return next;
-              });
-              if (tokens) {
-                setSessionStats(s => ({
-                  messages: s.messages + 1,
-                  inputTokens: s.inputTokens + inputTok,
-                  outputTokens: s.outputTokens + outputTok,
-                  costCents: s.costCents + costC,
-                }));
-              } else {
-                setSessionStats(s => ({ ...s, messages: s.messages + 1 }));
-              }
-            } else if (ev.type === 'error') {
-              const errMsg = ev.error === 'no_api_key'
-                ? '⚠️ No API key configured.'
-                : `❌ ${(ev.message || ev.error || 'Error generating reply').toString().slice(0, 300)}`;
-              setMessages(prev => prev.filter(m => m.id !== thinkingMsgId).map(m => m.id === agentMsgId ? { ...m, text: errMsg, streaming: false } : m));
-              setStreamError(true);
-              setTimeout(() => setStreamError(false), 4000);
-            }
-          } catch { /* bad SSE */ }
+      await streamChat(agentId, {
+        message: text, sessionId,
+        // CLIs without session resume (kimi/codex/gemini) get the conversation so far as text.
+        history: messages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content.slice(0, 20_000) })),
+      }, (e) => {
+        if (e.type === 'session') {
+          setStore((s) => ({ ...s, conversations: s.conversations.map((c) => (c.id === convId ? { ...c, sessionId: e.sessionId } : c)) }));
+        } else if (e.type === 'step') {
+          steps.push({ id: e.id, tool: e.tool, label: stepLabel(e.tool, e.input, de), status: 'running' });
+          syncSteps();
+        } else if (e.type === 'step_done') {
+          const st = steps.find((x) => x.id === e.id);
+          if (st) { st.status = e.isError ? 'error' : 'completed'; st.summary = e.output.trim() || undefined; }
+          syncSteps();
+        } else if (e.type === 'text') {
+          texts.push(e.text);
+          patchMessage(convId, answerId, (m) => ({ ...m, content: texts.join('\n\n') }));
+        } else if (e.type === 'done') {
+          outcome = { status: e.status, error: e.error };
         }
-      }
-    } catch (err: unknown) {
-      if ((err as Error)?.name === 'AbortError') return;
-      setMessages(prev => prev.filter(m => m.id !== thinkingMsgId).map(m => m.id === agentMsgId ? { ...m, text: '❌ Connection error.', streaming: false } : m));
-    } finally {
-      setStreaming(false);
-      setTimeout(() => inputRef.current?.focus(), 50);
+      }, controller.signal);
+    } catch (err: any) {
+      outcome = controller.signal.aborted
+        ? { status: 'aborted', error: null }
+        : err instanceof ChatUnavailableError
+          ? { status: 'unavailable', error: err.message }
+          : { status: 'failed', error: err?.message ?? String(err) };
     }
-  }, [input, pendingImage, streaming, selectedAgent, aktivesUnternehmen, currentSession, persistSession]);
 
-  // ── Model switcher: per-provider suggestions + save handler ────────────────
-  const modelSuggestions = useMemo<string[]>(() => {
-    const ct = selectedAgent?.connectionType || '';
-    if (ct === 'anthropic' || ct === 'claude') {
-      return ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'];
-    }
-    if (ct === 'openrouter') {
-      return ['anthropic/claude-opus-4-7', 'anthropic/claude-sonnet-4-6', 'openai/gpt-5', 'google/gemini-2.5-pro', 'meta-llama/llama-3.1-70b-instruct'];
-    }
-    if (ct === 'openai') {
-      return ['gpt-5', 'gpt-5-mini', 'gpt-4o', 'gpt-4o-mini'];
-    }
-    if (ct === 'moonshot') {
-      return ['moonshot-v1-32k', 'moonshot-v1-128k', 'kimi-k2'];
-    }
-    if (ct === 'ollama') {
-      return ['llama3.1:8b', 'llama3.1:70b', 'qwen2.5-coder', 'mistral'];
-    }
-    return [];
-  }, [selectedAgent?.connectionType]);
-
-  // Open menu → seed input with current model
-  useEffect(() => {
-    if (modelMenuOpen) {
-      setModelInput(selectedAgent?.model || '');
-      setModelError(null);
-    }
-  }, [modelMenuOpen, selectedAgent?.model]);
-
-  const saveModel = useCallback(async (newModel: string) => {
-    if (!selectedAgent || !newModel.trim() || newModel.trim() === selectedAgent.model) {
-      setModelMenuOpen(false);
-      return;
-    }
-    setModelSaving(true);
-    setModelError(null);
-    try {
-      // Read current connectionConfig to merge model into it (don't drop other fields)
-      const cfgRes = await fetch(`/api/experten/${selectedAgent.id}`, {
-        credentials: 'include',
-        headers: authHeaders({ 'x-unternehmen-id': aktivesUnternehmen?.id || '' }),
-      });
-      let existingCfg: Record<string, any> = {};
-      if (cfgRes.ok) {
-        const a = await cfgRes.json();
-        try { existingCfg = JSON.parse(a.verbindungsConfig || a.connectionConfig || '{}'); } catch {}
-      }
-      const merged = { ...existingCfg, model: newModel.trim() };
-      const res = await fetch(`/api/agents/${selectedAgent.id}`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: authHeaders({ 'Content-Type': 'application/json', 'x-unternehmen-id': aktivesUnternehmen?.id || '' }),
-        body: JSON.stringify({ verbindungsConfig: merged }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || `HTTP ${res.status}`);
-      }
-      setSelectedAgent(a => a ? { ...a, model: newModel.trim() } : a);
-      setModelMenuOpen(false);
-    } catch (e: any) {
-      setModelError(e?.message || 'Fehler beim Speichern');
-    } finally {
-      setModelSaving(false);
-    }
-  }, [selectedAgent, aktivesUnternehmen]);
-
-  // ── Slash-command filter + apply ───────────────────────────────────────────
-  const slashMatches = useMemo<SlashCmd[]>(() => {
-    const t = input.trimStart();
-    if (!t.startsWith('/')) return [];
-    const q = t.slice(1).split(/\s/, 1)[0]?.toLowerCase() || '';
-    if (!q) return SLASH_COMMANDS;
-    return SLASH_COMMANDS.filter(c => c.cmd.slice(1).startsWith(q));
-  }, [input]);
-  const slashOpen = slashMatches.length > 0;
-
-  // Reset highlighted index when the menu re-opens or filter changes
-  useEffect(() => { setSlashIdx(0); }, [slashOpen, slashMatches.length]);
-
-  const applySlashCommand = useCallback((c: SlashCmd) => {
-    const lang = 'en';
-    if (c.prompt.de === '__HELP__') {
-      // Special: dump available commands inline as a system message
-      const list = SLASH_COMMANDS
-        .filter(x => x.prompt.de !== '__HELP__')
-        .map(x => `${x.cmd}  —  ${x.label[lang]}`)
-        .join('\n');
-      const helpMsg: Message = {
-        id: `help-${Date.now()}`,
-        role: 'system',
-        text: (t('autoGenerated.availableSlashCommandsn')) + list,
-        time: new Date().toISOString(),
-      };
-      setMessages(prev => [...prev, helpMsg]);
-      setInput('');
-    } else {
-      setInput(c.prompt[lang]);
-    }
-    setTimeout(() => {
-      const el = inputRef.current;
-      if (el) {
-        el.focus();
-        el.style.height = 'auto';
-        el.style.height = Math.min(el.scrollHeight, 200) + 'px';
-        el.setSelectionRange(el.value.length, el.value.length);
-      }
-    }, 0);
-  }, [de]);
-
-  const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Slash-menu navigation takes priority when open
-    if (slashOpen) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIdx(i => Math.min(i + 1, slashMatches.length - 1)); return; }
-      if (e.key === 'ArrowUp')   { e.preventDefault(); setSlashIdx(i => Math.max(i - 1, 0)); return; }
-      if (e.key === 'Escape')    { e.preventDefault(); setInput(''); return; }
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        const pick = slashMatches[slashIdx];
-        if (pick) applySlashCommand(pick);
-        return;
-      }
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        const pick = slashMatches[slashIdx];
-        if (pick) applySlashCommand(pick);
-        return;
-      }
-    }
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    // Finish the message: keep the steps as the collapsible recap, add a note if something went wrong.
+    const note =
+      outcome.status === 'completed' ? '' :
+      outcome.status === 'aborted' ? t.chat.stopped :
+      outcome.status === 'rate_limited' ? fill(t.chat.rateLimited, { error: outcome.error ?? '' }) :
+      outcome.status === 'unavailable' ? fill(t.chat.unavailable, { error: outcome.error ?? '' }) :
+      fill(t.chat.errorNote, { error: outcome.error ?? (de ? 'unbekannt' : 'unknown') });
+    const finalSteps = steps.map((st) => (st.status === 'running' ? { ...st, status: outcome.status === 'completed' ? 'completed' as const : 'error' as const } : st));
+    patchMessage(convId, answerId, (m) => ({
+      ...m,
+      streaming: false,
+      steps: finalSteps,
+      content: [texts.join('\n\n'), note].filter(Boolean).join('\n\n'),
+    }));
+    setStreamingId(null);
+    setLiveSteps([]);
+    abortRef.current = null;
   };
 
-  // Show mission prompt when no CEO agents exist and we're not loading
-  const needsOnboarding = !loadingAgents && agents.length === 0;
+  const stop = () => abortRef.current?.abort();
 
-  // Auto-show mission prompt when onboarding is needed (can't be dismissed until team is created)
-  useEffect(() => {
-    if (needsOnboarding) {
-      setShowMissionPrompt(true);
-    }
-  }, [needsOnboarding]);
+  const togglePin = (id: string) => setStore((s) => ({ ...s, conversations: s.conversations.map((c) => (c.id === id ? { ...c, pinned: !c.pinned } : c)) }));
+  const rename = (id: string) => {
+    const title = editingTitle.trim();
+    if (title) setStore((s) => ({ ...s, conversations: s.conversations.map((c) => (c.id === id ? { ...c, title } : c)) }));
+    setEditingId(null);
+  };
+  const remove = (id: string) => {
+    if (!confirm(t.chat.deleteConfirm)) return;
+    setStore((s) => {
+      const { [id]: _, ...rest } = s.messages;
+      return { conversations: s.conversations.filter((c) => c.id !== id), messages: rest };
+    });
+    if (activeId === id) setActiveId(null);
+  };
 
-  // ── Render ──────────────────────────────────────────────────────────────────
-
-  // Hooks must be called before any early returns
-  const visibleMessages = useMemo(() => messages.filter(m => m.role !== 'system'), [messages]);
-  const hasMessages = visibleMessages.length > 0;
-
-  if (loadingAgents) return (
-    <div style={{ flex: 1, ...flex('column', { center: true }), gap: 12, color: C.textMuted }}>
-      <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
-      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{t('autoGenerated.loadingAgents')}</span>
-    </div>
-  );
-
-  // When no agents exist, render a minimal shell with the Mission Prompt overlay
-  if (!agents.length) {
-    return (
-      <div style={{ ...flex('column'), height: 'calc(100dvh - 120px)', background: C.bg, position: 'relative', overflow: 'hidden' }}>
-        {showMissionPrompt && aktivesUnternehmen && (
-          <MissionPrompt
-            de={de}
-            companyId={aktivesUnternehmen.id}
-            onBootstrap={handleBootstrap}
-            onDismiss={() => setShowMissionPrompt(false)}
-          />
-        )}
-        {!showMissionPrompt && (
-          <div style={{ flex: 1, ...flex('column', { center: true }), gap: 12, color: C.textMuted }}>
-            <AlertCircle size={32} />
-            <span style={{ fontSize: 14 }}>{t('autoGenerated.noAgentsConfigured')}</span>
-          </div>
-        )}
-      </div>
-    );
-  }
+  const groups = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = store.conversations.filter((c) => !q || c.title.toLowerCase().includes(q));
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+    const out: { label: string; items: Conversation[] }[] = [];
+    const push = (label: string, items: Conversation[]) => items.length && out.push({ label, items });
+    push(t.chat.pinned, list.filter((c) => c.pinned));
+    const rest = list.filter((c) => !c.pinned);
+    push(t.chat.today, rest.filter((c) => new Date(c.updatedAt) >= today));
+    push(t.chat.yesterday, rest.filter((c) => new Date(c.updatedAt) >= yesterday && new Date(c.updatedAt) < today));
+    push(t.chat.older, rest.filter((c) => new Date(c.updatedAt) < yesterday));
+    return out;
+  }, [store.conversations, search, t]);
 
   return (
-    <div style={{ ...flex('column'), height: 'calc(100dvh - 120px)', background: C.bg, position: 'relative', overflow: 'hidden' }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleImageFile(f); }}>
-      {/* Hidden file input */}
-      <input ref={fileRef} id="chat-file" name="chat-file" type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleImageFile(f); e.target.value = ''; }} />
-
-      {/* Ambient blobs */}
-      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', top: '5%', left: '20%', width: 500, height: 500, borderRadius: 9999, background: 'rgba(197,160,89,0.04)', filter: 'blur(120px)' }} />
-        <div style={{ position: 'absolute', bottom: '10%', right: '15%', width: 400, height: 400, borderRadius: 9999, background: 'rgba(160,120,56,0.03)', filter: 'blur(100px)' }} />
-      </div>
-
-      {/* Chat header — slim info bar under the Layout TopBar */}
-      <div style={{ flexShrink: 0, padding: '10px 24px', borderBottom: `1px solid ${C.border}`, ...flex('row', { between: true }), alignItems: 'center' }}>
-        <div style={{ ...flex('row'), gap: 10, alignItems: 'center' }}>
-          <img src="/opencognit.png" alt="OpenCognit" style={{ width: 28, height: 28, objectFit: 'contain', flexShrink: 0 }} />
-          {/* Tab switcher */}
-          <div style={{ ...flex('row'), gap: 4, marginLeft: 8 }}>
-            <button
-              onClick={() => setActiveTab('chat')}
-              style={{
-                padding: '4px 12px', fontSize: 12, fontWeight: 600,
-                borderRadius: 6, border: 'none', cursor: 'pointer',
-                background: activeTab === 'chat' ? C.goldDim : 'transparent',
-                color: activeTab === 'chat' ? C.gold : C.textMuted,
-              }}
-            >
-              {t('autoGenerated.chat')}
+    <div className="relative flex overflow-hidden rounded-3xl border border-white/5 bg-[#0b0a08]" style={{ height: 'calc(100dvh - 120px)' }}>
+      {/* ── Conversation sidebar ── */}
+      {sidebarOpen && <div className="md:hidden absolute inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />}
+      <aside className={`z-50 absolute md:relative inset-y-0 left-0 flex flex-col overflow-hidden border-r border-white/5 bg-[#100e0b] transition-all duration-500 ease-in-out ${sidebarOpen ? 'w-72 shadow-2xl' : 'w-0 border-r-0 opacity-0 pointer-events-none'}`}>
+        <div className="w-72 flex flex-col h-full flex-shrink-0">
+          <div className="p-4">
+            <button type="button" onClick={newChat} className="w-full rounded-lg py-3 px-4 flex items-center gap-2 font-semibold text-[#1a1206] bg-gradient-to-b from-brand-300 to-brand-500 hover:from-brand-200 hover:to-brand-400 transition-colors">
+              <Plus size={18} /> {t.chat.newChat}
             </button>
-            <button
-              onClick={() => setActiveTab('inbox')}
-              style={{
-                padding: '4px 12px', fontSize: 12, fontWeight: 600,
-                borderRadius: 6, border: 'none', cursor: 'pointer',
-                background: activeTab === 'inbox' ? C.goldDim : 'transparent',
-                color: activeTab === 'inbox' ? C.gold : C.textMuted,
-              }}
-            >
-              {t('autoGenerated.inbox')}
-            </button>
+            <div className="relative mt-2">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/35 pointer-events-none" />
+              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t.chat.searchChats}
+                className="w-full rounded-lg bg-white/5 border border-white/10 pl-8 pr-2.5 py-1.5 text-[12.5px] text-white/75 placeholder:text-white/30 outline-none focus:border-brand-500/40" />
+            </div>
           </div>
-          {selectedAgent && activeTab === 'chat' ? (
-            <>
-              <div style={{ ...flex('row'), gap: 6, alignItems: 'center' }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{selectedAgent.name}</span>
-                <span style={{ fontSize: 7, fontWeight: 800, padding: '2px 6px', color: C.gold, background: C.goldDim, border: `1px solid ${C.goldGlow}`, letterSpacing: '0.08em', ...round(4) }}>CEO</span>
+          <div className="flex-1 overflow-y-auto px-3 py-2">
+            {groups.map((g) => (
+              <div key={g.label} className="mb-4">
+                <div className="text-[10px] font-semibold text-white/35 mb-2 px-2 tracking-wider">{g.label}</div>
+                <div className="space-y-0.5">
+                  {g.items.map((c) => (
+                    <div key={c.id} onClick={() => { setActiveId(c.id); setSidebarOpen(window.innerWidth >= 768); }}
+                      className={`group flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors ${activeId === c.id ? 'bg-white/10 text-white font-medium' : 'text-white/50 hover:bg-white/5 hover:text-white/80'}`}>
+                      <MessageSquare size={14} className="flex-shrink-0 text-white/35" />
+                      {editingId === c.id ? (
+                        <input autoFocus value={editingTitle} onChange={(e) => setEditingTitle(e.target.value)} onBlur={() => rename(c.id)}
+                          onKeyDown={(e) => e.key === 'Enter' && rename(c.id)} onClick={(e) => e.stopPropagation()}
+                          className="flex-1 min-w-0 bg-transparent border-b border-brand-500 text-sm text-white outline-none" />
+                      ) : <span className="flex-1 truncate text-[13px]">{c.title}</span>}
+                      <div className={`items-center gap-0.5 flex-shrink-0 ${c.pinned ? 'flex' : 'hidden group-hover:flex'}`}>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); togglePin(c.id); }} title={c.pinned ? t.chat.unpin : t.chat.pin}
+                          className={`p-1 rounded hover:bg-white/10 ${c.pinned ? 'text-brand-400' : 'text-white/45 hover:text-white'}`}>
+                          {c.pinned ? <PinOff size={11} /> : <Pin size={11} />}
+                        </button>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setEditingId(c.id); setEditingTitle(c.title); }} title={t.chat.rename}
+                          className="p-1 rounded hover:bg-white/10 text-white/45 hover:text-white"><Pencil size={11} /></button>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); remove(c.id); }} title={t.chat.delete}
+                          className="p-1 rounded hover:bg-red-900/40 text-white/45 hover:text-red-400"><Trash2 size={11} /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              {/* Model + provider pill — clickable to switch models */}
-              <div style={{ position: 'relative' }}>
-                <button
-                  onClick={() => setModelMenuOpen(o => !o)}
-                  title={de
-                    ? `Verbunden mit ${selectedAgent.connectionType || 'unknown'} · Modell ${selectedAgent.model || 'default'} · Klicken zum Wechseln`
-                    : `Connected to ${selectedAgent.connectionType || 'unknown'} · Model ${selectedAgent.model || 'default'} · Click to switch`}
-                  style={{
-                    ...flex('row'), gap: 6, alignItems: 'center', padding: '3px 8px',
-                    background: modelMenuOpen ? C.goldDim : 'rgba(255,255,255,0.03)',
-                    border: `1px solid ${modelMenuOpen ? C.goldGlow : C.border}`,
-                    cursor: 'pointer', transition: 'all 0.15s',
-                    ...round(4),
-                  }}
-                >
-                  <motion.div
-                    style={{
-                      width: 6, height: 6, borderRadius: 9999,
-                      background: streamError ? '#ef4444' : streaming ? C.gold : C.success,
-                      boxShadow: streaming ? `0 0 6px ${C.gold}` : 'none',
-                    }}
-                    animate={streaming ? { opacity: [0.4, 1, 0.4] } : { opacity: 1 }}
-                    transition={streaming ? { duration: 1.2, repeat: Infinity } : { duration: 0 }}
-                  />
-                  {selectedAgent.connectionType && (
-                    <span style={{ fontSize: 9, color: C.textMuted, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                      {selectedAgent.connectionType}
-                    </span>
-                  )}
-                  {selectedAgent.model && (
-                    <span style={{ fontSize: 10, color: C.text, fontFamily: 'var(--font-mono)' }}>{selectedAgent.model}</span>
-                  )}
-                  <ChevronDown size={11} style={{ color: C.textDim, opacity: 0.6, transition: 'transform 0.15s', transform: modelMenuOpen ? 'rotate(180deg)' : 'rotate(0)' }} />
-                </button>
-                <AnimatePresence>
-                  {modelMenuOpen && (
-                    <>
-                      {/* Click-outside catcher */}
-                      <div onClick={() => setModelMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 30 }} />
-                      <motion.div
-                        initial={{ opacity: 0, y: -4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -4 }}
-                        transition={{ duration: 0.12 }}
-                        style={{
-                          position: 'absolute', top: 'calc(100% + 6px)', left: 0, minWidth: 320,
-                          background: 'rgba(15, 15, 18, 0.96)',
-                          border: `1px solid ${C.border}`,
-                          boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
-                          backdropFilter: 'blur(20px)',
-                          ...round(8),
-                          zIndex: 31,
-                          padding: 12,
-                        }}
-                      >
-                        <div style={{ fontSize: 9, color: C.textDim, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
-                          {t('autoGenerated.switchModel')} · {selectedAgent.connectionType?.toUpperCase()}
-                        </div>
-                        <input
-                          autoFocus
-                          value={modelInput}
-                          onChange={e => setModelInput(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter') { e.preventDefault(); saveModel(modelInput); }
-                            if (e.key === 'Escape') { e.preventDefault(); setModelMenuOpen(false); }
-                          }}
-                          placeholder={t('autoGenerated.enterModelId')}
-                          style={{ width: '100%', padding: '7px 10px', background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.border}`, color: C.text, fontFamily: 'var(--font-mono)', fontSize: 11, outline: 'none', boxSizing: 'border-box', ...round(5) }}
-                        />
-                        {modelSuggestions.length > 0 && (
-                          <div style={{ marginTop: 10 }}>
-                            <div style={{ fontSize: 9, color: C.textDim, fontFamily: 'var(--font-mono)', marginBottom: 4 }}>
-                              {t('autoGenerated.suggestions')}
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                              {modelSuggestions.map(m => (
-                                <button
-                                  key={m}
-                                  onClick={() => saveModel(m)}
-                                  disabled={modelSaving}
-                                  style={{
-                                    textAlign: 'left', padding: '5px 8px',
-                                    background: m === selectedAgent.model ? C.goldDim : 'transparent',
-                                    border: 'none', cursor: 'pointer',
-                                    color: m === selectedAgent.model ? C.gold : C.textMuted,
-                                    fontFamily: 'var(--font-mono)', fontSize: 11,
-                                    ...round(4),
-                                    transition: 'background 0.1s',
-                                  }}
-                                  onMouseEnter={e => { if (m !== selectedAgent.model) (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.04)'; }}
-                                  onMouseLeave={e => { if (m !== selectedAgent.model) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
-                                >
-                                  {m === selectedAgent.model && '✓ '}{m}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        {modelError && (
-                          <div style={{ marginTop: 8, padding: '6px 8px', fontSize: 11, color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', ...round(4) }}>
-                            {modelError}
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', gap: 6, marginTop: 10, justifyContent: 'flex-end' }}>
-                          <button
-                            onClick={() => setModelMenuOpen(false)}
-                            disabled={modelSaving}
-                            style={{ padding: '5px 10px', background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, cursor: 'pointer', fontSize: 10, fontFamily: 'var(--font-mono)', ...round(4) }}
-                          >
-                            {t('autoGenerated.cancel')}
-                          </button>
-                          <button
-                            onClick={() => saveModel(modelInput)}
-                            disabled={modelSaving || !modelInput.trim() || modelInput.trim() === selectedAgent.model}
-                            style={{ padding: '5px 10px', background: C.gold, border: 'none', color: '#0a0a0f', cursor: modelSaving ? 'wait' : 'pointer', fontSize: 10, fontFamily: 'var(--font-mono)', fontWeight: 700, opacity: (modelSaving || !modelInput.trim() || modelInput.trim() === selectedAgent.model) ? 0.5 : 1, ...round(4) }}
-                          >
-                            {modelSaving ? '…' : (t('autoGenerated.save'))}
-                          </button>
-                        </div>
-                      </motion.div>
-                    </>
-                  )}
-                </AnimatePresence>
+            ))}
+            {groups.length === 0 && (
+              <p className="text-xs text-white/35 px-2 py-4">{search.trim() ? t.chat.noResults : t.chat.noChatsYet}</p>
+            )}
+          </div>
+        </div>
+      </aside>
+
+      {/* ── Main ── */}
+      <main className="flex-1 flex flex-col h-full relative min-w-0 z-10 overflow-hidden">
+        <header className="flex items-center justify-between gap-3 px-4 md:px-5 py-3 border-b border-white/5">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button type="button" onClick={() => setSidebarOpen((o) => !o)} aria-label={t.chat.toggleSidebar}
+              className="p-1.5 rounded-lg text-white/45 hover:text-white hover:bg-white/10 transition-colors"><PanelLeft size={16} /></button>
+            <div className="relative">
+              <button type="button" onClick={() => setAgentMenu((m) => !m)} aria-expanded={agentMenu}
+                className="flex items-center gap-2 rounded-xl px-1.5 py-1 hover:bg-white/5 transition-colors">
+                <AgentOrb activity={streamingId ? 'working' : 'idle'} size={32} />
+                <span className="font-semibold text-sm text-white/85 truncate max-w-[180px]">{agent?.name ?? t.chat.noAgent}</span>
+                {agent && <span className="text-[11px] text-white/35 hidden sm:inline truncate max-w-[140px]">{agent.rolle}</span>}
+                <ChevronDown size={14} className="text-white/35" />
+              </button>
+              {agentMenu && agents.length > 0 && (
+                <div className="absolute left-0 top-11 z-50 w-64 rounded-xl border border-white/10 bg-zinc-900 shadow-2xl overflow-hidden" role="menu">
+                  {agents.map((a) => (
+                    <button key={a.id} type="button" role="menuitem" onClick={() => { setAgentId(a.id); setAgentMenu(false); }}
+                      className={`w-full px-3 py-2.5 text-left flex items-center gap-2.5 hover:bg-white/5 ${a.id === agentId ? 'bg-white/[0.04]' : ''}`}>
+                      <AgentOrb activity={a.status === 'running' ? 'working' : 'idle'} size={20} />
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-sm text-white/85 truncate">{a.name}</span>
+                        <span className="block text-[11px] text-white/35 truncate">
+                          {a.rolle} · {a.verbindungsTyp}{!isChatCli(a.verbindungsTyp) && <span className="text-white/25"> · {t.chat.chatSoon}</span>}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          {streamingId ? (
+            <span className="hidden sm:flex items-center gap-1.5 rounded-full bg-brand-500/10 border border-brand-500/25 px-3 py-1.5 text-[11px] font-bold text-brand-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-brand-400 animate-pulse" /> {t.chat.working}
+            </span>
+          ) : (
+            <span className="hidden sm:flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 text-[11px] font-bold text-emerald-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> {t.chat.ready}
+            </span>
+          )}
+        </header>
+
+        <div className="flex-1 flex flex-col relative isolate min-w-0 bg-white/[0.02] overflow-hidden">
+          {!started ? (
+            <div className="flex-1 overflow-y-auto flex flex-col items-center justify-center px-4 py-8 w-full max-w-4xl mx-auto">
+              <AnimatedSphere />
+              <h1 className="mt-4 mb-2 text-[22px] md:text-[28px] font-semibold tracking-[-0.01em] text-white/90">{agent?.name ?? 'OpenCognit'}</h1>
+              <p className="text-sm md:text-base text-white/50 mb-8 text-center max-w-lg">{greeting()}</p>
+              <div className="w-full max-w-3xl">
+                <ChatInput ref={inputRef} value={input} onChange={setInput} onSend={send} lang={language} loading={!!streamingId} onStop={stop}
+                  placeholder={agent?.name ? fill(t.chat.messageTo, { name: agent.name }) : t.chat.messageToDefault} />
+                <p className="mt-2 text-center text-[11px] text-white/30">{t.chat.disclaimer}</p>
+              </div>
+              <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-xl">
+                {quickActions.map((a) => (
+                  <button key={a.label} type="button" onClick={() => { setInput(a.prompt); inputRef.current?.focusEnd(); }}
+                    className="flex items-center gap-3 px-4 py-2.5 rounded-full bg-white/[0.04] border border-white/[0.08] text-white/65 text-sm hover:bg-white/[0.08] hover:text-white hover:border-brand-500/25 transition-colors">
+                    <span className="flex-shrink-0 text-brand-400">{a.icon}</span><span className="truncate">{a.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex-1 overflow-y-auto">
+                <div className="max-w-3xl mx-auto py-4">
+                  {messages.map((m) => (
+                    <ChatMessage key={m.id} message={m} lang={language} agentName={agent?.name}
+                      liveSteps={m.id === streamingId ? liveSteps : undefined}
+                      onQuickReply={(text) => send({ message: text, pasted: [] })} />
+                  ))}
+                  <div ref={bottomRef} />
+                </div>
+              </div>
+              <div className="px-4 pb-4 pt-2">
+                <div className="max-w-3xl mx-auto">
+                  <ChatInput ref={inputRef} value={input} onChange={setInput} onSend={send} lang={language} loading={!!streamingId} onStop={stop}
+                    placeholder={agent?.name ? fill(t.chat.messageTo, { name: agent.name }) : t.chat.messageToDefault} />
+                </div>
               </div>
             </>
-          ) : (
-            <span style={{ fontSize: 12, color: C.textMuted, fontFamily: 'var(--font-mono)' }}>
-              {loadingAgents ? '…' : (t('autoGenerated.noCeoConfigured'))}
-            </span>
           )}
         </div>
-        <div style={{ ...flex('row'), gap: 12, alignItems: 'center' }}>
-          {/* Live session token + cost counter */}
-          {selectedAgent && (sessionStats.inputTokens > 0 || sessionStats.outputTokens > 0) && (
-            <div
-              title={t('autoGenerated.currentSessionSessionstatsmessagesReplys')}
-              style={{ ...flex('row'), gap: 6, alignItems: 'center', fontSize: 10, color: C.textMuted, fontFamily: 'var(--font-mono)' }}
-            >
-              <span style={{ color: C.text }}>
-                {sessionStats.inputTokens + sessionStats.outputTokens >= 1000
-                  ? `${((sessionStats.inputTokens + sessionStats.outputTokens) / 1000).toFixed(1)}k`
-                  : (sessionStats.inputTokens + sessionStats.outputTokens)} tok
-              </span>
-              <span style={{ opacity: 0.4 }}>·</span>
-              <span style={{ color: C.gold }}>
-                {(sessionStats.costCents / 100).toFixed(sessionStats.costCents >= 100 ? 2 : 4)}€
-              </span>
-            </div>
-          )}
-          {selectedAgent && (
-            <span
-              title={t('autoGenerated.monthlyBudget')}
-              style={{ fontSize: 10, color: C.textMuted, fontFamily: 'var(--font-mono)', opacity: 0.6 }}
-            >
-              {(selectedAgent.monthlySpendCent ?? 0) / 100}€ / {(selectedAgent.monthlyBudgetCent ?? 0) / 100}€
-            </span>
-          )}
-          <button onClick={() => setStepsOpen(!stepsOpen)} style={{ ...flex('row', { center: true }), gap: 4, padding: '4px 10px', background: stepsOpen ? 'rgba(124,185,122,0.1)' : 'transparent', border: `1px solid ${stepsOpen ? 'rgba(124,185,122,0.3)' : C.border}`, color: stepsOpen ? C.success : C.textMuted, cursor: 'pointer', fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.06em', transition: 'all 0.15s', ...round(6) }}>
-            <Activity size={11} /><span>{ceoSteps.length || ''}</span>
-          </button>
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} style={{ ...flex('row', { center: true }), gap: 4, padding: '4px 10px', background: sidebarOpen ? C.goldDim : 'transparent', border: `1px solid ${sidebarOpen ? C.goldGlow : C.border}`, color: sidebarOpen ? C.gold : C.textMuted, cursor: 'pointer', fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.06em', transition: 'all 0.15s', ...round(6) }}>
-            <History size={11} /><span>{sessions.length || ''}</span>
-          </button>
-          <button onClick={startNewChat} style={{ ...flex('row', { center: true }), gap: 4, padding: '4px 10px', background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, cursor: 'pointer', fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.06em', transition: 'all 0.15s', ...round(6) }}>
-            <Plus size={11} /><span>{t('autoGenerated.new')}</span>
-          </button>
-          <div style={{ ...flex('row'), gap: 4, alignItems: 'center' }}>
-            <div style={{ width: 5, height: 5, borderRadius: 9999, background: selectedAgent?.status === 'running' ? C.gold : selectedAgent?.status === 'active' ? C.success : '#3a342c', boxShadow: selectedAgent?.status === 'running' ? `0 0 4px ${C.gold}` : 'none' }} />
-            <span style={{ fontSize: 9, color: C.textMuted, fontFamily: 'var(--font-mono)', letterSpacing: '0.06em' }}>{selectedAgent?.status?.toUpperCase()}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Body */}
-      <div style={{ ...flex('row'), flex: 1, overflow: 'hidden', minHeight: 0, position: 'relative', zIndex: 10 }}>
-        {/* History sidebar */}
-        <AnimatePresence>
-          {sidebarOpen && selectedAgent && (
-            <motion.div initial={{ width: 0, opacity: 0 }} animate={{ width: 260, opacity: 1 }} exit={{ width: 0, opacity: 0 }} transition={{ duration: 0.2 }}
-              style={{ flexShrink: 0, borderRight: `1px solid ${C.border}`, background: 'rgba(5,5,5,0.95)', ...flex('column'), overflow: 'hidden', minWidth: 0, minHeight: 0 }}>
-              <div style={{ padding: '14px 18px', borderBottom: `1px solid ${C.border}`, ...flex('row', { between: true }), flexShrink: 0 }}>
-                <div>
-                  <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: C.gold, letterSpacing: '0.15em', textTransform: 'uppercase' }}>History</div>
-                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{selectedAgent.name}</div>
-                </div>
-                <div style={{ ...flex('row'), gap: 6, alignItems: 'center' }}>
-                  {sessions.length > 0 && (
-                    <button
-                      onClick={async () => {
-                        if (!selectedAgent || !aktivesUnternehmen) return;
-                        if (!confirm(t('autoGenerated.deleteEntireChatHistory'))) return;
-                        try {
-                          await fetch(`/api/experten/${selectedAgent.id}/chat`, {
-                            method: 'DELETE',
-                            credentials: 'include',
-                            headers: authHeaders({ 'x-unternehmen-id': aktivesUnternehmen.id }),
-                          });
-                          saveSessions(selectedAgent.id, []);
-                          setSessions([]);
-                          startNewChat();
-                        } catch {}
-                      }}
-                      title={t('autoGenerated.clearAll')}
-                      style={{ background: 'transparent', border: 'none', color: C.textDim, cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  )}
-                  <button onClick={() => setSidebarOpen(false)} style={{ background: 'transparent', border: 'none', color: C.textDim, cursor: 'pointer', padding: 4 }}><X size={14} /></button>
-                </div>
-              </div>
-              <div style={{ flex: 1, overflowY: 'auto', scrollbarWidth: 'thin', scrollbarColor: 'rgba(197,180,150,0.1) transparent' }}>
-                {sessions.length === 0 ? (
-                  <div style={{ padding: 32, textAlign: 'center', color: C.textDim, fontSize: 11, fontFamily: 'var(--font-mono)' }}>No history yet</div>
-                ) : (() => {
-                  const grouped: { label: string; items: ChatSession[] }[] = [];
-                  for (const s of sessions) {
-                    const label = fmtDate(s.createdAt);
-                    const g = grouped.find(x => x.label === label);
-                    if (g) g.items.push(s); else grouped.push({ label, items: [s] });
-                  }
-                  return grouped.map(g => (
-                    <div key={g.label}>
-                      <div style={{ padding: '14px 18px 4px', fontSize: 9, fontFamily: 'var(--font-mono)', color: C.textDim, letterSpacing: '0.15em', textTransform: 'uppercase' }}>{g.label}</div>
-                      {g.items.map(s => (
-                        <div key={s.id} style={{ ...flex('row'), alignItems: 'center', padding: '0 8px', transition: 'all 0.15s', borderLeft: s.id === currentSession.id ? `2px solid ${C.gold}` : '2px solid transparent', background: s.id === currentSession.id ? C.goldDim : 'transparent' }}>
-                          <button onClick={() => loadSession(s)} style={{ flex: 1, padding: '10px 10px', textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer', overflow: 'hidden', minWidth: 0 }}>
-                            <div style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: s.id === currentSession.id ? C.gold : C.textMuted, fontWeight: s.id === currentSession.id ? 600 : 400 }}>{s.title}</div>
-                            <div style={{ fontSize: 9, color: C.textDim, fontFamily: 'var(--font-mono)', marginTop: 2 }}>{fmtTime(s.createdAt)} · {s.messages.filter(m => m.role !== 'system').length} msgs</div>
-                          </button>
-                          <button onClick={e => { e.stopPropagation(); deleteSession(s.id); }} style={{ background: 'transparent', border: 'none', color: C.textDim, cursor: 'pointer', padding: 6, opacity: 0.5, transition: 'opacity 0.15s' }} onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.opacity = '1'} onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.opacity = '0.5'}>
-                            <Trash2 size={11} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ));
-                })()}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Steps sidebar */}
-        <AnimatePresence>
-          {stepsOpen && (
-            <motion.div initial={{ width: 0, opacity: 0 }} animate={{ width: 280, opacity: 1 }} exit={{ width: 0, opacity: 0 }} transition={{ duration: 0.2 }}
-              style={{ flexShrink: 0, borderLeft: `1px solid ${C.border}`, background: 'rgba(5,5,5,0.95)', ...flex('column'), overflow: 'hidden', minWidth: 0, minHeight: 0 }}>
-              <div style={{ padding: '14px 18px', borderBottom: `1px solid ${C.border}`, ...flex('row', { between: true }), flexShrink: 0 }}>
-                <div>
-                  <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: C.success, letterSpacing: '0.15em', textTransform: 'uppercase' }}>{t('autoGenerated.workSteps')}</div>
-                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{selectedAgent?.name}</div>
-                </div>
-                <button onClick={() => setStepsOpen(false)} style={{ background: 'transparent', border: 'none', color: C.textDim, cursor: 'pointer', padding: 4 }}><X size={14} /></button>
-              </div>
-              <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', scrollbarWidth: 'thin', scrollbarColor: 'rgba(197,180,150,0.1) transparent' }}>
-                {ceoSteps.length === 0 ? (
-                  <div style={{ padding: 24, textAlign: 'center', color: C.textDim, fontSize: 11, fontFamily: 'var(--font-mono)' }}>{t('autoGenerated.noStepsYet')}</div>
-                ) : (
-                  <div style={{ ...flex('column'), gap: 8 }}>
-                    {ceoSteps.map((step, i) => {
-                      const isLast = i === ceoSteps.length - 1;
-                      const stepColor = step.type === 'error' || step.type === 'warning' ? '#e0856b' :
-                        step.type === 'result' || step.type === 'success' ? C.success :
-                        step.type === 'action' ? C.gold : C.textMuted;
-                      const stepIcon = step.type === 'error' ? '✗' :
-                        step.type === 'result' || step.type === 'success' ? '✓' :
-                        step.type === 'action' ? '▶' : '·';
-                      return (
-                        <div key={step.id} style={{ ...flex('row'), gap: 10, alignItems: 'flex-start', opacity: isLast ? 1 : 0.6 }}>
-                          <div style={{ width: 20, height: 20, ...flex('row', { center: true }), fontSize: 10, fontFamily: 'var(--font-mono)', flexShrink: 0, color: stepColor, border: `1px solid ${stepColor}44`, ...round(6), background: `${stepColor}11` }}>
-                            {stepIcon}
-                          </div>
-                          <div style={{ ...flex('column'), gap: 2, minWidth: 0 }}>
-                            <div style={{ fontSize: 11, color: isLast ? C.text : C.textMuted, lineHeight: 1.4, wordBreak: 'break-word' }}>{step.title}</div>
-                            {step.details && <div style={{ fontSize: 9, color: C.textDim, lineHeight: 1.4, wordBreak: 'break-word' }}>{step.details}</div>}
-                            <div style={{ fontSize: 9, color: C.textDim, fontFamily: 'var(--font-mono)' }}>{fmtTime(step.time)}</div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Main chat */}
-        <div style={{ ...flex('column'), flex: 1, overflow: 'hidden', minHeight: 0 }} onClick={() => setPickerOpen(false)}>
-          {/* Messages — only this area scrolls */}
-          <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '28px 24px', display: 'flex', flexDirection: 'column', gap: 4, scrollbarWidth: 'thin', scrollbarColor: 'rgba(197,180,150,0.1) transparent' }}>
-            {!hasMessages && (
-              <motion.div style={{ flex: 1, ...flex('column', { center: true }), gap: 40, paddingBottom: 40 }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
-                <div style={{ ...flex('column', { center: true }), gap: 14 }}>
-                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} style={{ textAlign: 'center' }}>
-                    <h1 style={{ fontSize: 36, fontWeight: 600, letterSpacing: '-0.03em', background: 'linear-gradient(180deg, rgba(232,228,220,0.95), rgba(232,228,220,0.4))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: 1.2 }}>
-                      {t('autoGenerated.ceoCommandCenter')}
-                    </h1>
-                    <motion.div style={{ height: 1, background: 'linear-gradient(90deg, transparent, rgba(197,160,89,0.35), transparent)', marginTop: 16 }} initial={{ width: 0, opacity: 0 }} animate={{ width: '100%', opacity: 1 }} transition={{ delay: 0.5, duration: 0.8 }} />
-                  </motion.div>
-                  <motion.p style={{ fontSize: 15, color: 'rgba(255,255,255,0.3)', textAlign: 'center', maxWidth: 520 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35 }}>
-                    {t('autoGenerated.talkDirectlyToYourCeoTheyCreateAgentsAss')}
-                  </motion.p>
-                </div>
-
-                <div style={{ ...flex('row', { center: true, wrap: true }), gap: 10, maxWidth: 640 }}>
-                  {(de ? [
-                    'Bau mir ein Social-Media-Team das täglich postet',
-                    'Erstelle ein Content-Team: Researcher, Autor, Editor',
-                    'Was macht mein Team gerade?',
-                    'Richte einen Research-Agenten für tägliche News ein',
-                  ] : [
-                    'Build me a social media team that posts daily',
-                    'Create a content team: researcher, writer, editor',
-                    "What's my team working on right now?",
-                    'Set up a research agent for daily news summaries',
-                  ]).map((suggestion, i) => (
-                    <motion.button key={suggestion} onClick={() => { setValue(suggestion); setTimeout(() => inputRef.current?.focus(), 50); }}
-                      style={{ ...flex('row', { center: true }), gap: 8, padding: '10px 16px', background: C.surface, border: `1px solid ${C.border}`, color: 'rgba(255,255,255,0.55)', fontSize: 13, cursor: 'pointer', transition: 'all 0.15s', ...round(10) }}
-                      whileHover={{ scale: 1.02, borderColor: C.goldGlow, background: C.surfaceHover, color: 'rgba(255,255,255,0.85)' }}
-                      whileTap={{ scale: 0.98 }}
-                      initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.07 }}>
-                      <Sparkles size={12} style={{ color: 'rgba(197,160,89,0.7)' }} />
-                      <span>{suggestion}</span>
-                    </motion.button>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-
-            {messages.map(msg => {
-              if (msg.role === 'system') {
-                // Verarbeitungsschritte als graue Inline-Nachrichten anzeigen
-                return (
-                  <motion.div key={msg.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} style={{ ...flex('row'), alignItems: 'center', gap: 8, marginBottom: 8, paddingLeft: 40 }}>
-                    <div style={{ width: 20, height: 20, ...flex('row', { center: true }), flexShrink: 0 }}>
-                      <Loader2 size={12} style={{ animation: 'spin 1.5s linear infinite', color: C.textMuted }} />
-                    </div>
-                    <div style={{ padding: '8px 14px', background: 'rgba(255,255,255,0.02)', border: `1px solid ${C.border}`, color: C.textMuted, fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', ...round(10), maxWidth: '70%', fontFamily: 'var(--font-mono)' }}>
-                      {msg.text}
-                    </div>
-                    <span style={{ fontSize: 9, color: C.textDim, fontFamily: 'var(--font-mono)' }}>{fmtTime(msg.time)}</span>
-                  </motion.div>
-                );
-              }
-              const isUser = msg.role === 'user';
-              return (
-                <motion.div key={msg.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} style={{ ...flex('row'), alignItems: 'flex-end', gap: 10, marginBottom: 10, flexDirection: isUser ? 'row-reverse' : 'row' }}>
-                  <div style={{ width: 30, height: 30, ...flex('row', { center: true }), fontSize: 12, fontWeight: 700, flexShrink: 0, ...round(8), background: isUser ? 'rgba(197,160,89,0.12)' : `${selectedAgent?.avatarFarbe}22`, border: `1px solid ${isUser ? 'rgba(197,160,89,0.3)' : (selectedAgent?.avatarFarbe || C.gold) + '44'}`, color: isUser ? C.gold : selectedAgent?.avatarFarbe }}>
-                    {isUser ? <User size={14} /> : (selectedAgent?.avatar || selectedAgent?.name.slice(0, 2).toUpperCase())}
-                  </div>
-                  <div style={{ ...flex('column'), gap: 4, maxWidth: '75%', alignItems: isUser ? 'flex-end' : 'flex-start' }}>
-                    {!isUser && (msg.thinking || msg.streaming) && <ThinkingBlock text={msg.thinking ?? ''} streaming={msg.streaming && !msg.text} />}
-                    {isUser && msg.images?.map((src, i) => (
-                      <img key={i} src={src} alt="" style={{ maxWidth: 240, maxHeight: 200, objectFit: 'cover', border: `1px solid ${C.goldDim}`, marginBottom: 4, ...round(10) }} />
-                    ))}
-                    {(msg.text || msg.streaming) && (
-                      <div style={{ padding: '12px 16px', background: isUser ? 'rgba(197,160,89,0.08)' : C.surface, border: `1px solid ${isUser ? 'rgba(197,160,89,0.15)' : C.border}`, color: C.text, fontSize: 15, lineHeight: 1.65, whiteSpace: 'pre-wrap', wordBreak: 'break-word', ...round(14), maxWidth: '100%' }}>
-                        {!isUser && aktivesUnternehmen ? renderTextWithFiles(msg.text, aktivesUnternehmen.id) : msg.text}
-                        {msg.streaming && !msg.text && (
-                          <div style={{ ...flex('row'), alignItems: 'center', gap: 4, padding: '6px 0' }}>
-                            {[0, 1, 2].map(i => <motion.div key={i} style={{ width: 6, height: 6, background: C.gold, borderRadius: 9999 }} animate={{ opacity: [0.2, 1, 0.2], scale: [0.8, 1, 0.8] }} transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }} />)}
-                          </div>
-                        )}
-                        {msg.streaming && msg.text && (
-                          <motion.span style={{ display: 'inline-block', width: 2, height: '1.1em', background: C.gold, marginLeft: 4, verticalAlign: 'text-bottom' }} animate={{ opacity: [1, 0] }} transition={{ duration: 0.7, repeat: Infinity, repeatType: 'reverse' }} />
-                        )}
-                      </div>
-                    )}
-                    {/* Render interactive plan if present */}
-                    {msg.plan && msg.plan.length > 0 && (
-                      <div style={{ width: '100%', maxWidth: 560, marginTop: 6 }}>
-                        <AgentPlan tasks={msg.plan} language={'en'} />
-                      </div>
-                    )}
-                    <div style={{ ...flex('row'), alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 10, color: C.textDim, fontFamily: 'var(--font-mono)' }}>{fmtTime(msg.time)}</span>
-                      {!isUser && msg.tokens && (msg.tokens.input + msg.tokens.output > 0) && (
-                        <span
-                          title={de
-                            ? `${msg.tokens.input} input + ${msg.tokens.output} output${msg.tokens.model ? ` · ${msg.tokens.model}` : ''}`
-                            : `${msg.tokens.input} in + ${msg.tokens.output} out${msg.tokens.model ? ` · ${msg.tokens.model}` : ''}`}
-                          style={{ fontSize: 9, color: C.textDim, fontFamily: 'var(--font-mono)', opacity: 0.6 }}
-                        >
-                          {(msg.tokens.input + msg.tokens.output) >= 1000
-                            ? `${((msg.tokens.input + msg.tokens.output) / 1000).toFixed(1)}k tok`
-                            : `${msg.tokens.input + msg.tokens.output} tok`}
-                          {msg.tokens.costCents > 0 && ` · ${(msg.tokens.costCents / 100).toFixed(msg.tokens.costCents >= 100 ? 2 : 4)}€`}
-                        </span>
-                      )}
-                      {msg.id !== 'welcome' && (
-                        <button
-                          onClick={async () => {
-                            if (!selectedAgent || !aktivesUnternehmen) return;
-                            const isServerMsg = !msg.id.startsWith('u-') && !msg.id.startsWith('a-');
-                            if (isServerMsg && !confirm(t('autoGenerated.deleteMessage'))) return;
-                            if (isServerMsg) {
-                              try {
-                                await fetch(`/api/experten/${selectedAgent.id}/chat/messages/${msg.id}`, {
-                                  method: 'DELETE',
-                                  credentials: 'include',
-                                  headers: authHeaders({ 'x-unternehmen-id': aktivesUnternehmen.id }),
-                                });
-                              } catch {}
-                            }
-                            setMessages(prev => prev.filter(m => m.id !== msg.id));
-                            setCurrentSession(prev => ({ ...prev, messages: prev.messages.filter(m => m.id !== msg.id) }));
-                          }}
-                          title={t('autoGenerated.delete')}
-                          style={{ background: 'transparent', border: 'none', color: C.textDim, cursor: 'pointer', padding: 2, fontSize: 10, lineHeight: 1, opacity: 0.35, transition: 'opacity 0.15s' }}
-                          onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.opacity = '1'}
-                          onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.opacity = '0.35'}
-                        >
-                          ×
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </motion.div>
-              );
-            })}
-            <div ref={bottomRef} />
-          </div>
-
-          {/* Input — stays fixed at bottom, never scrolls */}
-          <div style={{ flexShrink: 0, padding: '10px 24px 24px', background: 'rgba(10,10,10,0.85)', backdropFilter: 'blur(24px)', borderTop: `1px solid ${C.border}`, position: 'relative' }}>
-            {/* Slash-command popover — anchored above the input */}
-            <AnimatePresence>
-              {slashOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 6 }}
-                  transition={{ duration: 0.12 }}
-                  style={{
-                    position: 'absolute', left: 24, right: 24, bottom: 'calc(100% - 4px)',
-                    background: 'rgba(15, 15, 18, 0.96)',
-                    border: `1px solid ${C.border}`,
-                    boxShadow: '0 -4px 24px rgba(0,0,0,0.4)',
-                    backdropFilter: 'blur(20px)',
-                    ...round(12),
-                    overflow: 'hidden',
-                    maxHeight: 320,
-                    overflowY: 'auto',
-                    zIndex: 20,
-                  }}
-                  onMouseDown={e => e.preventDefault()}
-                >
-                  <div style={{ padding: '8px 12px', fontSize: 9, color: C.textDim, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: `1px solid ${C.border}` }}>
-                    {t('autoGenerated.slashCommands')} · ↑↓ · Enter · Esc
-                  </div>
-                  {slashMatches.map((c, i) => (
-                    <button
-                      key={c.cmd}
-                      onClick={() => applySlashCommand(c)}
-                      onMouseEnter={() => setSlashIdx(i)}
-                      style={{
-                        width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-                        padding: '8px 12px',
-                        background: i === slashIdx ? C.goldDim : 'transparent',
-                        border: 'none', textAlign: 'left', cursor: 'pointer',
-                        borderLeft: i === slashIdx ? `2px solid ${C.gold}` : '2px solid transparent',
-                        color: i === slashIdx ? C.text : C.textMuted,
-                      }}
-                    >
-                      <span style={{ color: i === slashIdx ? C.gold : C.textDim, display: 'inline-flex' }}>{c.icon}</span>
-                      <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', minWidth: 80, color: i === slashIdx ? C.gold : C.textMuted }}>{c.cmd}</span>
-                      <span style={{ fontSize: 12, fontWeight: 500 }}>{c.label['en']}</span>
-                      <span style={{ fontSize: 11, color: C.textDim, marginLeft: 'auto', opacity: 0.7 }}>{c.desc['en']}</span>
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-            <motion.div style={{ position: 'relative', background: 'rgba(255,255,255,0.02)', border: `1px solid ${C.border}`, boxShadow: '0 8px 32px rgba(0,0,0,0.4)', backdropFilter: 'blur(40px)', ...round(18) }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-              <div style={{ padding: '18px 20px 10px' }}>
-                <textarea
-                  ref={inputRef}
-                  value={input}
-                  onChange={e => { setInput(e.target.value); e.currentTarget.style.height = 'auto'; e.currentTarget.style.height = Math.min(e.currentTarget.scrollHeight, 200) + 'px'; }}
-                  onKeyDown={handleKey}
-                  onFocus={() => setInputFocused(true)}
-                  onBlur={() => setInputFocused(false)}
-                  placeholder={de ? `Nachricht an ${selectedAgent?.name ?? 'Agent'}…` : `Message ${selectedAgent?.name ?? 'agent'}…`}
-                  style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', color: C.text, fontSize: 15, lineHeight: 1.6, resize: 'none', minHeight: 56, maxHeight: 200, overflowY: 'auto', scrollbarWidth: 'thin', fontFamily: 'inherit' }}
-                />
-              </div>
-
-              <AnimatePresence>
-                {pendingImage && (
-                  <motion.div style={{ padding: '0 20px 10px', ...flex('row'), gap: 8 }} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-                    <motion.div style={{ ...flex('row'), alignItems: 'center', gap: 8, fontSize: 12, background: C.surface, padding: '6px 14px', color: 'rgba(255,255,255,0.55)', border: `1px solid ${C.border}`, ...round(10) }} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}>
-                      <img src={pendingImage.previewUrl} alt="" style={{ width: 36, height: 36, objectFit: 'cover', ...round(6) }} />
-                      <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pendingImage.name}</span>
-                      <button onClick={() => setPendingImage(null)} style={{ color: 'rgba(255,255,255,0.3)', background: 'transparent', border: 'none', cursor: 'pointer', marginLeft: 4 }}><X size={13} /></button>
-                    </motion.div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              <div style={{ padding: '10px 16px 12px', borderTop: `1px solid ${C.border}`, ...flex('row', { between: true }), alignItems: 'center', gap: 12 }}>
-                <div style={{ ...flex('row'), alignItems: 'center', gap: 4 }}>
-                  <motion.button type="button" onClick={pickImage} whileTap={{ scale: 0.92 }} style={{ padding: 8, ...round(10), background: 'transparent', border: 'none', cursor: 'pointer', color: pendingImage ? C.gold : 'rgba(255,255,255,0.3)', transition: 'color 0.15s', display: 'flex', alignItems: 'center' }}>
-                    {pendingImage ? <ImageIcon size={16} /> : <Paperclip size={16} />}
-                  </motion.button>
-                  <motion.button type="button" onClick={() => setStepsOpen(!stepsOpen)} whileTap={{ scale: 0.92 }} title={t('autoGenerated.steps')} style={{ padding: 8, ...round(10), background: 'transparent', border: 'none', cursor: 'pointer', color: stepsOpen ? C.success : 'rgba(255,255,255,0.3)', transition: 'color 0.15s', display: 'flex', alignItems: 'center' }}>
-                    <Activity size={16} />
-                    {ceoSteps.length > 0 && <span style={{ fontSize: 10, marginLeft: 4, color: C.success, fontFamily: 'var(--font-mono)' }}>{ceoSteps.length}</span>}
-                  </motion.button>
-                  <motion.button type="button" onClick={() => setSidebarOpen(!sidebarOpen)} whileTap={{ scale: 0.92 }} title={t('autoGenerated.history')} style={{ padding: 8, ...round(10), background: 'transparent', border: 'none', cursor: 'pointer', color: sidebarOpen ? C.gold : 'rgba(255,255,255,0.3)', transition: 'color 0.15s', display: 'flex', alignItems: 'center' }}>
-                    <History size={16} />
-                    {sessions.length > 0 && <span style={{ fontSize: 10, marginLeft: 4, color: C.gold, fontFamily: 'var(--font-mono)' }}>{sessions.length}</span>}
-                  </motion.button>
-                  <motion.button type="button" onClick={startNewChat} whileTap={{ scale: 0.92 }} title={t('autoGenerated.newChat')} style={{ padding: 8, ...round(10), background: 'transparent', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.3)', transition: 'color 0.15s', display: 'flex', alignItems: 'center' }}>
-                    <Plus size={16} />
-                  </motion.button>
-                  <div style={{ width: 1, height: 16, background: C.border, margin: '0 4px' }} />
-                  <div style={{ ...flex('row'), gap: 6, alignItems: 'center' }}>
-                    <div style={{ width: 6, height: 6, borderRadius: 9999, background: selectedAgent?.status === 'running' ? C.gold : selectedAgent?.status === 'active' ? C.success : '#3a342c', boxShadow: selectedAgent?.status === 'running' ? `0 0 6px ${C.gold}` : 'none' }} />
-                    <span style={{ fontSize: 10, color: C.textMuted, fontFamily: 'var(--font-mono)', letterSpacing: '0.06em' }}>{selectedAgent?.status?.toUpperCase()}</span>
-                  </div>
-                </div>
-                <div style={{ ...flex('row'), alignItems: 'center', gap: 12 }}>
-                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', fontFamily: 'var(--font-mono)' }}>Enter to send · Shift↵ new line</span>
-                  <motion.button type="button" onClick={send} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.96 }} disabled={(!input.trim() && !pendingImage) || streaming}
-                    style={{ ...flex('row', { center: true }), gap: 6, padding: '8px 18px', fontSize: 14, fontWeight: 600, ...round(10), transition: 'all 0.15s', cursor: (input.trim() || pendingImage) && !streaming ? 'pointer' : 'default', background: (input.trim() || pendingImage) && !streaming ? C.white : 'rgba(255,255,255,0.05)', color: (input.trim() || pendingImage) && !streaming ? '#0a0a0a' : 'rgba(255,255,255,0.25)', boxShadow: (input.trim() || pendingImage) && !streaming ? '0 4px 20px rgba(255,255,255,0.08)' : 'none' }}>
-                    {streaming ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={15} />}
-                    <span>{t('autoGenerated.send')}</span>
-                  </motion.button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      </div>
-
-      {/* Thinking toast */}
-      <AnimatePresence>
-        {streaming && (
-          <motion.div style={{ position: 'absolute', bottom: 120, left: '50%', transform: 'translateX(-50%)', background: 'rgba(255,255,255,0.02)', border: `1px solid ${C.border}`, padding: '10px 18px', boxShadow: '0 8px 32px rgba(0,0,0,0.5)', zIndex: 50, ...round(9999), backdropFilter: 'blur(24px)' }} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }}>
-            <div style={{ ...flex('row'), alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 30, height: 30, ...flex('row', { center: true }), fontSize: 11, fontWeight: 700, color: C.gold, background: C.goldDim, border: `1px solid ${C.goldGlow}`, ...round(9999) }}>
-                {selectedAgent?.avatar || selectedAgent?.name.slice(0, 2).toUpperCase()}
-              </div>
-              <div style={{ ...flex('row'), alignItems: 'center', gap: 8, fontSize: 14, color: 'rgba(255,255,255,0.55)' }}>
-                <span>{t('autoGenerated.thinking')}</span>
-                <Dots />
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* A2A Inbox panel */}
-      {activeTab === 'inbox' && selectedAgent && (
-        <div style={{ position: 'absolute', inset: 0, top: 53, zIndex: 10, background: C.bg }}>
-          <AgentInbox agentId={selectedAgent.id} companyId={aktivesUnternehmen?.id || ''} agents={agents} de={de} />
-        </div>
-      )}
-
-      {/* Mouse spotlight */}
-      {inputFocused && (
-        <motion.div style={{ position: 'fixed', width: '40rem', height: '40rem', borderRadius: 9999, pointerEvents: 'none', zIndex: 0, background: C.gold, opacity: 0.012, filter: 'blur(96px)' }} animate={{ x: mousePos.x - 320, y: mousePos.y - 320 }} transition={{ type: 'spring', damping: 25, stiffness: 150, mass: 0.5 }} />
-      )}
+      </main>
     </div>
   );
+}
+
+/** The chat-capable CLI connection types (mirrors CHAT_CLIS in server/services/cli-chat.ts). */
+function isChatCli(connectionType: string): boolean {
+  return ['claude-code', 'kimi-cli', 'codex-cli', 'gemini-cli'].includes(connectionType);
 }

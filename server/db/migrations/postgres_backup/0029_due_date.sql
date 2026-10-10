@@ -1,2 +1,2 @@
 -- Add due date to tasks
-ALTER TABLE aufgaben ADD COLUMN due_date TEXT;
+ALTER TABLE tasks ADD COLUMN due_date TEXT;
