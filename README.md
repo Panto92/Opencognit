@@ -34,6 +34,20 @@ You → Goal → CEO Agent → Dev Agent → Writer Agent → Researcher Agent
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Dashboard — team overview, KPIs and alerts" width="900" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/warroom.png" alt="War Room — live swarm view of the task graph" width="900" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/chat.png" alt="CEO Chat — streaming conversation with your CEO agent" width="900" />
+</p>
+
+---
+
 ## Core Features
 
 - **CEO Orchestrator** — Extended Thinking before delegation
