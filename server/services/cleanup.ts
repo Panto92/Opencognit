@@ -82,11 +82,22 @@ class CleanupService {
       const cutoff30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
       const cutoff14 = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString();
 
+      // Null out FK references to runs that are about to be deleted, otherwise
+      // SQLite aborts the delete with FOREIGN KEY constraint failed.
+      // (agent_wakeup_requests.run_id, work_products.run_id, arbeitszyklen.retry_of_run_id)
+      const nullRunRefs = (statuses: string[], cutoff: string) => {
+        const statusList = sql.raw(statuses.map(s => `'${s}'`).join(','));
+        db.run(sql`UPDATE agent_wakeup_requests SET run_id = NULL WHERE run_id IN (SELECT id FROM arbeitszyklen WHERE status IN (${statusList}) AND erstellt_am < ${cutoff})`);
+        db.run(sql`UPDATE work_products SET run_id = NULL WHERE run_id IN (SELECT id FROM arbeitszyklen WHERE status IN (${statusList}) AND erstellt_am < ${cutoff})`);
+        db.run(sql`UPDATE arbeitszyklen SET retry_of_run_id = NULL WHERE retry_of_run_id IN (SELECT id FROM arbeitszyklen WHERE status IN (${statusList}) AND erstellt_am < ${cutoff})`);
+      };
+
       // Archive succeeded/cancelled/deferred runs older than 30 days
       stats.staleRunsArchived += await this.archiveOldRuns(
         ['succeeded', 'cancelled', 'deferred'],
         cutoff30
       );
+      nullRunRefs(['succeeded', 'cancelled', 'deferred'], cutoff30);
       const deletedSucceeded = db.delete(workCycles)
         .where(and(
           inArray(workCycles.status, ['succeeded', 'cancelled', 'deferred']),
@@ -100,6 +111,7 @@ class CleanupService {
         ['failed', 'timed_out'],
         cutoff14
       );
+      nullRunRefs(['failed', 'timed_out'], cutoff14);
       const deletedFailed = db.delete(workCycles)
         .where(and(
           inArray(workCycles.status, ['failed', 'timed_out']),
