@@ -118,6 +118,72 @@ Was soll der Agent als nächstes versuchen?`;
 }
 
 // ─── CRITIC/EVALUATOR ─────────────────────────────────────────────────────
+
+/**
+ * Deterministic failure detection for agent output — runs BEFORE any LLM review.
+ *
+ * Why: adapters sometimes report success (exit 0) while the output is just an
+ * error message (rate-limit notice, CLI usage dump, stack trace). An LLM critic
+ * with a "don't be too strict" prompt can wave such output through. These cases
+ * are machine-detectable, so we reject them without ever asking an LLM.
+ *
+ * False-positive guard: most signatures only trigger on SHORT outputs. A real
+ * deliverable that merely *mentions* errors (log analysis, bug report) is
+ * typically long and passes.
+ *
+ * Returns a feedback string when the output looks like a failure, else null.
+ */
+export function detectFailureOutput(output: string): string | null {
+  const trimmed = (output || '').trim();
+  if (trimmed.length < 10) {
+    return 'Kein verwertbares Ergebnis geliefert (Ausgabe leer oder zu kurz).';
+  }
+
+  const isShort = trimmed.length < 800;
+  // Real adapter errors never arrive as formatted markdown — a code fence means
+  // the agent produced a deliverable (e.g. a snippet with error handling).
+  const hasCodeFence = trimmed.includes('```');
+  // CLI/infra errors are echoed at the very start of the output; error *words*
+  // later in the text are usually content (analysis, quotes, code).
+  const head = trimmed.slice(0, 200);
+
+  // Infrastructure/CLI failure signatures — only decisive on short outputs
+  if (isShort && !hasCodeFence) {
+    if (/rate.?limit|usage limit|quota exceeded|429 too many requests/i.test(head)) {
+      return 'Die Ausgabe ist eine Rate-Limit-/Quota-Meldung, kein Arbeitsergebnis.';
+    }
+    if (/authentication failed|invalid api key|invalid x-api-key|unauthorized|401/i.test(head)) {
+      return 'Die Ausgabe ist ein Authentifizierungsfehler, kein Arbeitsergebnis.';
+    }
+    if (/command not found|unknown option|unrecognized argument|is not recognized as/i.test(head)) {
+      return 'Die Ausgabe ist ein CLI-Bedienfehler, kein Arbeitsergebnis.';
+    }
+    if (/^(usage|verwendung|synopsis):/im.test(trimmed)) {
+      return 'Die Ausgabe ist ein CLI-Usage-Dump (falsche Aufrufparameter), kein Arbeitsergebnis.';
+    }
+    if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|fetch failed|network error/i.test(head)) {
+      return 'Die Ausgabe ist ein Netzwerkfehler, kein Arbeitsergebnis.';
+    }
+    if (/npm ERR!|pnpm ERR!|yarn ERR!/i.test(head)) {
+      return 'Die Ausgabe ist ein Paketmanager-Fehler, kein Arbeitsergebnis.';
+    }
+    if (/^(error|fehler|exception|fatal|panic)[:!]/i.test(trimmed)) {
+      return 'Die Ausgabe beginnt mit einer Fehlermeldung und enthält kein Arbeitsergebnis.';
+    }
+  }
+
+  // Stack traces are decisive at any length — no successful deliverable is a stack trace
+  if (/Traceback \(most recent call last\)/.test(trimmed)) {
+    return 'Die Ausgabe ist ein Python-Stacktrace, kein Arbeitsergebnis.';
+  }
+  const stackLines = trimmed.split('\n').filter(l => /^\s+at\s+\S+\s+\(/.test(l)).length;
+  if (stackLines >= 3) {
+    return 'Die Ausgabe ist ein Stacktrace, kein Arbeitsergebnis.';
+  }
+
+  return null;
+}
+
 /**
  * Run Critic/Evaluator review for a completed task output.
  * Accepts executeTaskViaAdapterFn to avoid circular dependency with service.ts.
@@ -144,6 +210,14 @@ export async function runCriticReview(
     return { approved: false, escalate: true, feedback: 'Nach 2 Überarbeitungszyklen konnte der Agent die Aufgabe nicht zur Zufriedenheit abschließen. Manuelle Prüfung erforderlich.' };
   }
 
+  // Deterministic pre-check: never send error-shaped output to the LLM critic —
+  // it can wave through rate-limit notices or stack traces as "results".
+  const failureFeedback = detectFailureOutput(output);
+  if (failureFeedback) {
+    console.log(`  🔍 Critic: deterministic rejection for task ${taskId} — ${failureFeedback}`);
+    return { approved: false, feedback: failureFeedback };
+  }
+
   const criticPrompt = `Du bist ein strenger aber fairer Code/Task-Reviewer.
 
 Aufgabe: "${taskTitel}"
@@ -158,8 +232,9 @@ Bewerte ob das Ergebnis die Aufgabe erfüllt. Antworte NUR mit diesem JSON:
 Kriterien:
 - approved: Aufgabe klar erfüllt, Ergebnis macht Sinn
 - needs_revision: Aufgabe nicht erfüllt, falsche Richtung, offensichtlich unvollständig, oder kritische Fehler
+- needs_revision AUSSERDEM wenn das "Ergebnis" nur eine Fehlermeldung, ein Rate-Limit-Hinweis, ein CLI-Usage-Dump oder ein Stacktrace ist — das ist kein Arbeitsergebnis.
 
-Sei nicht zu streng — wenn die Arbeit grundsätzlich passt, approve.`;
+Sei nicht zu streng bei inhaltlichen Details — aber ein Fehlertext ist niemals ein Ergebnis.`;
 
   // Resolve the active LLM connection — same priority as the agent itself uses:
   // 1. Custom API (Poe, LM Studio, etc.) — whatever is configured in Settings
