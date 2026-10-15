@@ -192,7 +192,7 @@ router.get('/api/system/telemetry', authMiddleware, async (_req, res) => {
 
     // Cost summary (last 24h)
     const costSummary = db.all(
-      sql`SELECT SUM(kosten_cent) as totalCent, COUNT(*) as cnt FROM kosten_eintraege
+      sql`SELECT SUM(kosten_cent) as totalCent, COUNT(*) as cnt FROM kostenbuchungen
           WHERE erstellt_am >= ${since24h}`,
     ) as Array<{ totalCent: number; cnt: number }>;
 
