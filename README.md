@@ -6,6 +6,30 @@
 
 **Build Your Zero Human Company.**
 
+[!IMPORTANT]
+> **This project is no longer maintained.**
+> It has been succeeded by **OpenCognit Desktop** — a new app built from scratch.
+
+## Meet OpenCognit Desktop
+
+OpenCognit Desktop is a command center for AI coding agents. Run **Claude Code, Codex,
+Gemini CLI, Kimi and Hermes side by side** in one window — on your machine, with the
+subscriptions you already have.
+
+- **One window, many agents** — real terminals in a grid, or chat-style threads
+- **Orchestrator** — describe a goal, it hands tasks to your agents
+- **Guardrails** — risky commands (`git reset --hard`, force push, deploys) wait for your OK
+- **Review before you accept** — test results, changed files, one-click undo
+- **Live Kosmos** — watch which agent is reading or editing which file
+- **Local first** — no account, no telemetry, no cloud in between
+
+Linux first, Windows soon.
+
+👉 **Join the beta on Discord:** https://discord.gg/xASbhwdaS
+
+
+
+
 The AI agent orchestration OS — CEO orchestrator, persistent memory, real execution, atomic budgets. Self-hosted. No cloud lock-in.
 
 [![MIT License](https://img.shields.io/badge/license-MIT-gold)](LICENSE)
