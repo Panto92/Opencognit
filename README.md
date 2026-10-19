@@ -1,3 +1,29 @@
+> [!IMPORTANT]
+> **This project is no longer maintained.**
+> It has been succeeded by **OpenCognit Desktop** — a new app built from scratch.
+
+## Meet OpenCognit Desktop
+
+OpenCognit Desktop is a command center for AI coding agents. Run **Claude Code, Codex,
+Gemini CLI, Kimi and Hermes side by side** in one window — on your machine, with the
+subscriptions you already have.
+
+- **One window, many agents** — real terminals in a grid, or chat-style threads
+- **Orchestrator** — describe a goal, it hands tasks to your agents
+- **Guardrails** — risky commands (`git reset --hard`, force push, deploys) wait for your OK
+- **Review before you accept** — test results, changed files, one-click undo
+- **Live Kosmos** — watch which agent is reading or editing which file
+- **Local first** — no account, no telemetry, no cloud in between
+
+Linux first, Windows soon.
+
+👉 **Join the beta on Discord:** https://discord.gg/xASbhwdaS
+
+---
+
+<sub>The original OpenCognit server (below) stays available under its MIT license
+for reference and forks, but receives no further updates.</sub>
+
 <div align="center">
 
 <img width="2000" height="600" alt="x_banner" src="https://github.com/user-attachments/assets/186b7ef0-c1a9-415d-9225-72ff028bcdb0" />
