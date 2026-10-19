@@ -15,7 +15,7 @@ subscriptions you already have.
 - **Live Kosmos** — watch which agent is reading or editing which file
 - **Local first** — no account, no telemetry, no cloud in between
 
-Linux first, Windows soon.
+**Available for Linux and Windows.** → **[Website](https://opencognitos.github.io)** · **[Download](https://github.com/OpenCognitOS/opencognit-releases/releases/latest)**
 
 👉 **Join the beta on Discord:** https://discord.gg/xASbhwdaS
 
