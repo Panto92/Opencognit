@@ -1,0 +1,37 @@
+name: Bug report
+description: Something in OpenCognit Desktop does not work as expected
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: OpenCognit version
+      description: Shown in Settings → Updates
+      placeholder: 0.3.0
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: System
+      options: [Linux (AppImage), Linux (deb), Windows]
+    validations:
+      required: true
+  - type: input
+    id: cli
+    attributes:
+      label: Which CLI is affected, and its version
+      placeholder: Claude Code 2.x, Codex, Gemini CLI, Kimi, Hermes
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+  - type: markdown
+    attributes:
+      value: Please do not paste API keys, tokens or private code.

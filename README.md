@@ -1,163 +1,53 @@
-> [!IMPORTANT]
-> **This project is no longer maintained.**
-> It has been succeeded by **OpenCognit Desktop** — a new app built from scratch.
-
-## Meet OpenCognit Desktop
-
-OpenCognit Desktop is a command center for AI coding agents. Run **Claude Code, Codex,
-Gemini CLI, Kimi and Hermes side by side** in one window — on your machine, with the
-subscriptions you already have.
-
-- **One window, many agents** — real terminals in a grid, or chat-style threads
-- **Orchestrator** — describe a goal, it hands tasks to your agents
-- **Guardrails** — risky commands (`git reset --hard`, force push, deploys) wait for your OK
-- **Review before you accept** — test results, changed files, one-click undo
-- **Live Kosmos** — watch which agent is reading or editing which file
-- **Local first** — no account, no telemetry, no cloud in between
-
-**Available for Linux and Windows.** → **[Website](https://opencognitos.github.io)** · **[Download](https://github.com/OpenCognitOS/opencognit-releases/releases/latest)**
-
-👉 **Join the beta on Discord:** https://discord.gg/xASbhwdaS
-
----
-
-<sub>The original OpenCognit server (below) stays available under its MIT license
-for reference and forks, but receives no further updates.</sub>
-
-<div align="center">
-
-<img width="2000" height="600" alt="x_banner" src="https://github.com/user-attachments/assets/186b7ef0-c1a9-415d-9225-72ff028bcdb0" />
+![OpenCognit: You think. They build.](docs/img/banner.jpg)
 
 # OpenCognit
 
-**Build Your Zero Human Company.**
+**Every coding agent in one window.** OpenCognit is a desktop app for Linux and Windows that runs Claude Code, Codex, Gemini CLI, Kimi and Hermes side by side in real terminal sessions, lets one of them orchestrate the others, and checks their work before it reaches your project.
 
-The AI agent orchestration OS — CEO orchestrator, persistent memory, real execution, atomic budgets. Self-hosted. No cloud lock-in.
+Local. No telemetry. No account with us. One-time purchase.
 
-[![MIT License](https://img.shields.io/badge/license-MIT-gold)](LICENSE)
-[![Node.js 20+](https://img.shields.io/badge/node-%3E%3D20-green)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org)
-[![GitHub Stars](https://img.shields.io/github/stars/OpenCognit/opencognit?style=social)](https://github.com/OpenCognit/opencognit/stargazers)
- 
+[Download](https://github.com/OpenCognitOS/opencognit-releases/releases/latest) · [Website](https://opencognitos.github.io) · [Deutsch](README.de.md)
 
-[![Star History Chart](https://api.star-history.com/svg?repos=OpenCognit/opencognit&type=Date)](https://star-history.com/#OpenCognit/opencognit&Date)
+![Grid of agent sessions](docs/img/grid.png)
 
-</div>
+> **This repository used to host the open-source OpenCognit agent platform.** That project is discontinued. Its code stays available under the MIT license in the [`legacy`](../../tree/legacy) branch. OpenCognit continues as the desktop app described here, which is a commercial product and not open source. This repository is now its public home: releases, issues, and discussion.
 
----
+## What it does
 
-## What is OpenCognit?
+- **Many agents, one place.** Real PTY sessions for each CLI, in a focus view or a grid. Several logins per CLI (work and private) stay separate.
+- **An orchestrator that hands out work.** One agent starts others, gives each a numbered task and its own set of files, and is told when they report back. Agents cannot write outside their files, and two open tasks cannot overlap.
+- **Guardrails before anything runs.** Every shell command an agent wants to run is checked against your rules: block, ask you, or warn. Commits are scanned for secrets first.
+- **See what is happening.** A live graph shows which agent reads or changes which file and warns when two work in the same place.
+- **Work that survives.** Sessions resume after a restart, checkpoints let you jump back, scheduled and overnight tasks run in their own worktree and leave a report.
+- **Your usage, added up.** Tokens of all CLIs from their local logs, per day, model and project.
 
-OpenCognit is an **AI agent orchestration OS** — not a chatbot, not a single-agent wrapper. It runs a **virtual company** of autonomous AI agents that work together without you watching.
+![Live graph of agent activity](docs/img/graph.png)
 
-You set a goal. The CEO agent breaks it down, assigns tasks to specialists, reviews their work with a built-in Critic loop, and escalates blockers — while you sleep.
+## Privacy
 
-```
-You → Goal → CEO Agent → Dev Agent → Writer Agent → Researcher Agent
-                 ↑               ↓              ↓
-          Persistent Memory ←── Critic ←── Results ←────┘
-```
+OpenCognit runs on your machine and uses the subscriptions you already have with each CLI vendor. It has no server of ours in the loop and sends no telemetry. The event log stays in a local database; full terminal output is never stored in it. The update check reads one version file and nothing else.
 
----
+## Price
 
-## Screenshots
+- **Free:** up to 4 sessions at the same time.
+- **Full version:** 69 € once, including 12 months of updates. The licence is checked offline.
 
-<p align="center">
-  <img src="docs/screenshots/dashboard.png" alt="Dashboard — team overview, KPIs and alerts" width="900" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/warroom.png" alt="War Room — live swarm view of the task graph" width="900" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/chat.png" alt="CEO Chat — streaming conversation with your CEO agent" width="900" />
-</p>
+## Install
 
----
+Download the installer for your system from the [latest release](https://github.com/OpenCognitOS/opencognit-releases/releases/latest):
 
-## Core Features
+| System | File |
+|---|---|
+| Linux | `OpenCognit-linux-x86_64.AppImage` or `OpenCognit-linux-amd64.deb` |
+| Windows | `OpenCognit-windows-setup.exe` |
 
-- **CEO Orchestrator** — Extended Thinking before delegation
-- **Persistent Memory** — MemPalace + Semantic + SOUL documents per agent
-- **Critic Loop** — Every output reviewed before "done"
-- **Atomic Budgets** — Hard limits enforced at the cent level
-- **Task DAG** — Dependencies auto-resolve, downstream tasks unlock
-- **War Room** — Live swarm view of agents executing your task graph
-- **CEO Chat** — Talk directly to your CEO agent (streaming, CLI-backed)
-- **Org Chart** — Agent hierarchies, roles, and peer meetings
-- **Plugin System** — Custom adapters, widgets, API endpoints
-- **MCP Server** — Use OpenCognit from Cursor, Claude Code, Windsurf
-- **CLI Executor** — Live bash streaming with SSE
+You need at least one of the supported CLIs installed and logged in. The setup assistant finds them on first start.
 
----
+## Questions and problems
 
-## Quick Start
+- **Something broken?** [Open an issue](../../issues/new/choose).
+- **An idea or a question?** Use [Discussions](../../discussions).
 
-```bash
-# 1. Clone
-git clone https://github.com/OpenCognit/opencognit.git
-cd opencognit
+## Licence
 
-# 2. Setup
-bash setup.sh
-
-# 3. Run
-npm run dev
-```
-
-The UI opens at `http://localhost:3200`. The API runs on `http://localhost:3201`.
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────┐
-│           React 19 + Vite 6             │
-│     Glassmorphism UI, Dark Mode         │
-└─────────────┬───────────────────────────┘
-              │ REST / SSE / WebSocket
-┌─────────────▼───────────────────────────┐
-│      Express 5 + SQLite/PostgreSQL      │
-│  ┌─────────┐ ┌─────────┐ ┌──────────┐  │
-│  │  CEO    │ │ Critic  │ │  Memory  │  │
-│  │Orchestr.│ │  Loop   │ │  Palace  │  │
-│  └─────────┘ └─────────┘ └──────────┘  │
-│  ┌─────────┐ ┌─────────┐ ┌──────────┐  │
-│  │  Task   │ │ Budget  │ │  Agent   │  │
-│  │   DAG   │ │ Control │ │ Registry │  │
-│  └─────────┘ └─────────┘ └──────────┘  │
-└─────────────────────────────────────────┘
-              │ Adapters (Anthropic, OpenAI, Ollama, ...)
-┌─────────────▼───────────────────────────┐
-│     LLM Providers + Local Models        │
-└─────────────────────────────────────────┘
-```
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Frontend | React 19, Vite 6, Tailwind CSS, Framer Motion |
-| Backend | Express 5, TypeScript strict, ESM |
-| Database | SQLite (WAL) / PostgreSQL |
-| ORM | Drizzle ORM |
-| Auth | BetterAuth + JWT fallback |
-| Real-time | WebSocket + Server-Sent Events |
-| Validation | Zod |
-| Testing | Vitest + Playwright |
-
----
-
-## Community
-
-- 🐦 [X / Twitter](https://x.com/opencognit)
-
----
-
-## License
-
-OpenCognit is open source under the [MIT License](LICENSE).
-
-Copyright © 2026 Panto.
+OpenCognit Desktop is proprietary software, © OpenCognit. The former open-source project in the `legacy` branch remains under the MIT license.
