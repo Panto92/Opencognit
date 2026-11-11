@@ -1,12 +1,22 @@
+<div align="center">
+
 ![OpenCognit: You think. They build.](docs/img/banner.jpg)
 
 # OpenCognit
 
-**Alle Coding-Agenten in einem Fenster.** OpenCognit ist eine Desktop-App für Linux und Windows. Sie führt Claude Code, Codex, Gemini CLI, Kimi und Hermes nebeneinander in echten Terminal-Sessions aus, lässt einen Agenten die anderen steuern und prüft deren Arbeit, bevor sie in deinem Projekt landet.
+**Alle Coding-Agenten. Ein Fenster.**
 
-Lokal. Ohne Telemetrie. Ohne Konto bei uns. Einmal kaufen.
+Claude Code, Codex, Gemini CLI, Kimi und Hermes nebeneinander, einer steuert die anderen, und jedes Ergebnis wird geprüft, bevor es in deinem Projekt landet. Lokal, mit den Abos, die du schon hast.
 
-[Herunterladen](https://github.com/OpenCognitOS/opencognit-releases/releases/latest) · [Website](https://opencognitos.github.io) · [English](README.md)
+[![Latest release](https://img.shields.io/github/v/release/OpenCognitOS/opencognit-releases?color=d8b46a&label=release)](https://github.com/OpenCognitOS/opencognit-releases/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/OpenCognitOS/opencognit-releases/total?color=d8b46a)](https://github.com/OpenCognitOS/opencognit-releases/releases)
+[![Stars](https://img.shields.io/github/stars/Panto92/Opencognit?color=d8b46a)](https://github.com/Panto92/Opencognit/stargazers)
+[![Discord](https://img.shields.io/badge/Discord-join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/xASbhwdaS)
+[![Website](https://img.shields.io/badge/website-opencognitos.github.io-d8b46a)](https://opencognitos.github.io)
+
+**[⬇ Für Linux herunterladen](https://github.com/OpenCognitOS/opencognit-releases/releases/latest/download/OpenCognit-linux-x86_64.AppImage)** · **[⬇ Für Windows herunterladen](https://github.com/OpenCognitOS/opencognit-releases/releases/latest/download/OpenCognit-windows-setup.exe)** · [.deb](https://github.com/OpenCognitOS/opencognit-releases/releases/latest/download/OpenCognit-linux-amd64.deb) · [Alle Releases](https://github.com/OpenCognitOS/opencognit-releases/releases) · [English](README.md)
+
+</div>
 
 ![Raster mit Agenten-Sessions](docs/img/grid.png)
 
