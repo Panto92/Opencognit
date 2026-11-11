@@ -3,6 +3,9 @@ contact_links:
   - name: Question or idea
     url: https://github.com/Panto92/Opencognit/discussions
     about: Ask questions and suggest features in Discussions
+  - name: Discord
+    url: https://discord.gg/xASbhwdaS
+    about: Chat with other users and the developer
   - name: Download
     url: https://github.com/OpenCognitOS/opencognit-releases/releases/latest
     about: Installers for Linux and Windows

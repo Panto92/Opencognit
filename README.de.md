@@ -67,7 +67,7 @@ Du brauchst mindestens eine der unterstützten CLIs, installiert und angemeldet.
 ## Fragen und Probleme
 
 - **Etwas kaputt?** [Fehler melden](../../issues/new/choose).
-- **Idee oder Frage?** Dafür gibt es die [Discussions](../../discussions).
+- **Idee oder Frage?** Dafür gibt es die [Discussions](../../discussions) und den [Discord](https://discord.gg/xASbhwdaS).
 
 ## Lizenz
 

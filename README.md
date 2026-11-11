@@ -67,7 +67,7 @@ You need at least one of the supported CLIs installed and logged in. The setup a
 ## Questions and problems
 
 - **Something broken?** [Open an issue](../../issues/new/choose).
-- **An idea or a question?** Use [Discussions](../../discussions).
+- **An idea or a question?** Use [Discussions](../../discussions) or join the [Discord](https://discord.gg/xASbhwdaS).
 
 ## Licence
 
