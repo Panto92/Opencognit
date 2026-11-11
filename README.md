@@ -46,7 +46,7 @@ Editor: read and change the project's files without leaving the app.
 
 ## Privacy
 
-OpenCognit runs on your machine and uses the subscriptions you already have with each CLI vendor. It has no server of ours in the loop and sends no telemetry. The event log stays in a local database; full terminal output is never stored in it. The update check reads one version file and nothing else.
+OpenCognit runs on your machine and uses the subscriptions you already have with each CLI vendor. It has no server of ours in the loop and sends no telemetry. The event log stays in a local database; full terminal output is never stored in it. The app itself only goes online for a short, documented list of things: the update check, a package-name lookup on npm/PyPI before an agent installs something, and features you switch on yourself. The [full list](https://opencognitos.github.io/docs/en/security) says when, where and what, so you can check it with a firewall such as OpenSnitch or Portmaster.
 
 ## Price
 

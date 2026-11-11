@@ -46,7 +46,7 @@ Editor: Dateien des Projekts lesen und ändern, ohne die App zu verlassen.
 
 ## Datenschutz
 
-OpenCognit läuft auf deinem Rechner und nutzt die Abos, die du bei den Anbietern der CLIs schon hast. Es gibt keinen Server von uns dazwischen und keine Telemetrie. Das Ereignisprotokoll bleibt in einer lokalen Datenbank; vollständige Terminal-Ausgaben werden dort nie gespeichert. Die Update-Prüfung liest eine Versionsdatei und sonst nichts.
+OpenCognit läuft auf deinem Rechner und nutzt die Abos, die du bei den Anbietern der CLIs schon hast. Es gibt keinen Server von uns dazwischen und keine Telemetrie. Das Ereignisprotokoll bleibt in einer lokalen Datenbank; vollständige Terminal-Ausgaben werden dort nie gespeichert. Die App selbst geht nur für eine kurze, dokumentierte Liste ins Netz: die Update-Prüfung, eine Abfrage des Paketnamens bei npm/PyPI, bevor ein Agent etwas installiert, und Funktionen, die du selbst einschaltest. Die [vollständige Liste](https://opencognitos.github.io/docs/de/security) nennt wann, wohin und was, damit du es mit einer Firewall wie OpenSnitch oder Portmaster nachprüfen kannst.
 
 ## Preis
 
