@@ -21,7 +21,28 @@ Lokal. Ohne Telemetrie. Ohne Konto bei uns. Einmal kaufen.
 - **Arbeit, die bleibt.** Sessions überleben den Neustart, Checkpoints führen zurück, geplante Aufträge und Nachtaufträge laufen im eigenen Arbeitsbaum und hinterlassen einen Bericht.
 - **Dein Verbrauch, zusammengezählt.** Tokens aller CLIs aus ihren lokalen Protokollen, je Tag, Modell und Projekt.
 
-![Live-Graph der Agenten-Aktivität](docs/img/graph.png)
+
+## Ein Blick hinein
+
+![Neuronen](docs/img/neurons.webp)
+
+Neuronen: Jeder Agent ist ein Ring an dem Ordner, in dem er arbeitet. Impulse laufen in seiner Farbe über die Äste, wenn er eine Datei liest oder ändert.
+
+![Der Orchestrator verteilt Aufträge und meldet, was fertig ist, was scheiterte und was du entscheiden musst.](docs/img/orchestrator.png)
+
+Der Orchestrator verteilt Aufträge und meldet, was fertig ist, was scheiterte und was du entscheiden musst.
+
+![Guardrails](docs/img/guardrail.png)
+
+Guardrails: Ein Push zum Server wartet auf deine Freigabe.
+
+![Kosmos](docs/img/cosmos.png)
+
+Kosmos: das Projekt als Karte, mit jeder Datei, die ein Agent heute angefasst hat.
+
+![Editor](docs/img/editor.png)
+
+Editor: Dateien des Projekts lesen und ändern, ohne die App zu verlassen.
 
 ## Datenschutz
 
