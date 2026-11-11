@@ -21,7 +21,28 @@ Local. No telemetry. No account with us. One-time purchase.
 - **Work that survives.** Sessions resume after a restart, checkpoints let you jump back, scheduled and overnight tasks run in their own worktree and leave a report.
 - **Your usage, added up.** Tokens of all CLIs from their local logs, per day, model and project.
 
-![Live graph of agent activity](docs/img/graph.png)
+
+## A look inside
+
+![Neurons](docs/img/neurons.webp)
+
+Neurons: every agent is a ring at the folder it works in. Pulses run along the branches in the agent's colour when it reads or changes a file.
+
+![The orchestrator hands out tasks and reports back what is done, what failed and what needs your decision.](docs/img/orchestrator.png)
+
+The orchestrator hands out tasks and reports back what is done, what failed and what needs your decision.
+
+![Guardrails](docs/img/guardrail.png)
+
+Guardrails: a push to the remote waits for your approval.
+
+![Cosmos](docs/img/cosmos.png)
+
+Cosmos: the project as a map, with every file an agent touched today.
+
+![Editor](docs/img/editor.png)
+
+Editor: read and change the project's files without leaving the app.
 
 ## Privacy
 
