@@ -1,12 +1,22 @@
+<div align="center">
+
 ![OpenCognit: You think. They build.](docs/img/banner.jpg)
 
 # OpenCognit
 
-**Every coding agent in one window.** OpenCognit is a desktop app for Linux and Windows that runs Claude Code, Codex, Gemini CLI, Kimi and Hermes side by side in real terminal sessions, lets one of them orchestrate the others, and checks their work before it reaches your project.
+**Every coding agent. One window.**
 
-Local. No telemetry. No account with us. One-time purchase.
+Run Claude Code, Codex, Gemini CLI, Kimi and Hermes side by side, let one of them orchestrate the others, and have every result checked before it reaches your project. Locally, with the subscriptions you already have.
 
-[Download](https://github.com/OpenCognitOS/opencognit-releases/releases/latest) · [Website](https://opencognitos.github.io) · [Deutsch](README.de.md)
+[![Latest release](https://img.shields.io/github/v/release/OpenCognitOS/opencognit-releases?color=d8b46a&label=release)](https://github.com/OpenCognitOS/opencognit-releases/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/OpenCognitOS/opencognit-releases/total?color=d8b46a)](https://github.com/OpenCognitOS/opencognit-releases/releases)
+[![Stars](https://img.shields.io/github/stars/Panto92/Opencognit?color=d8b46a)](https://github.com/Panto92/Opencognit/stargazers)
+[![Discord](https://img.shields.io/badge/Discord-join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/xASbhwdaS)
+[![Website](https://img.shields.io/badge/website-opencognitos.github.io-d8b46a)](https://opencognitos.github.io)
+
+**[⬇ Download for Linux](https://github.com/OpenCognitOS/opencognit-releases/releases/latest/download/OpenCognit-linux-x86_64.AppImage)** · **[⬇ Download for Windows](https://github.com/OpenCognitOS/opencognit-releases/releases/latest/download/OpenCognit-windows-setup.exe)** · [.deb](https://github.com/OpenCognitOS/opencognit-releases/releases/latest/download/OpenCognit-linux-amd64.deb) · [All releases](https://github.com/OpenCognitOS/opencognit-releases/releases) · [Deutsch](README.de.md)
+
+</div>
 
 ![Grid of agent sessions](docs/img/grid.png)
 
