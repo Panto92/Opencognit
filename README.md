@@ -12,7 +12,7 @@ Run Claude Code, Codex, Gemini CLI, Kimi and Hermes side by side, let one of the
 [![Downloads](https://img.shields.io/github/downloads/OpenCognitOS/opencognit-releases/total?color=d8b46a)](https://github.com/OpenCognitOS/opencognit-releases/releases)
 [![Stars](https://img.shields.io/github/stars/Panto92/Opencognit?color=d8b46a)](https://github.com/Panto92/Opencognit/stargazers)
 [![Discord](https://img.shields.io/badge/Discord-join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/xASbhwdaS)
-[![Website](https://img.shields.io/badge/website-opencognitos.github.io-d8b46a)](https://opencognitos.github.io)
+[![Website](https://img.shields.io/badge/website-opencognit.com-d8b46a)](https://opencognit.com)
 
 **[⬇ Download for Linux](https://github.com/OpenCognitOS/opencognit-releases/releases/latest/download/OpenCognit-linux-x86_64.AppImage)** · **[⬇ Download for Windows](https://github.com/OpenCognitOS/opencognit-releases/releases/latest/download/OpenCognit-windows-setup.exe)** · [.deb](https://github.com/OpenCognitOS/opencognit-releases/releases/latest/download/OpenCognit-linux-amd64.deb) · [All releases](https://github.com/OpenCognitOS/opencognit-releases/releases) · [Deutsch](README.de.md)
 
@@ -56,7 +56,7 @@ Editor: read and change the project's files without leaving the app.
 
 ## Privacy
 
-OpenCognit runs on your machine and uses the subscriptions you already have with each CLI vendor. It has no server of ours in the loop and sends no telemetry. The event log stays in a local database; full terminal output is never stored in it. The app itself only goes online for a short, documented list of things: the update check, a package-name lookup on npm/PyPI before an agent installs something, and features you switch on yourself. The [full list](https://opencognitos.github.io/docs/en/security) says when, where and what, so you can check it with a firewall such as OpenSnitch or Portmaster.
+OpenCognit runs on your machine and uses the subscriptions you already have with each CLI vendor. It has no server of ours in the loop and sends no telemetry. The event log stays in a local database; full terminal output is never stored in it. The app itself only goes online for a short, documented list of things: the update check, a package-name lookup on npm/PyPI before an agent installs something, and features you switch on yourself. The [full list](https://opencognit.com/docs/en/security) says when, where and what, so you can check it with a firewall such as OpenSnitch or Portmaster.
 
 ## Price
 
