@@ -12,7 +12,7 @@ Claude Code, Codex, Gemini CLI, Kimi und Hermes nebeneinander, einer steuert die
 [![Downloads](https://img.shields.io/github/downloads/OpenCognitOS/opencognit-releases/total?color=d8b46a)](https://github.com/OpenCognitOS/opencognit-releases/releases)
 [![Stars](https://img.shields.io/github/stars/Panto92/Opencognit?color=d8b46a)](https://github.com/Panto92/Opencognit/stargazers)
 [![Discord](https://img.shields.io/badge/Discord-join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/xASbhwdaS)
-[![Website](https://img.shields.io/badge/website-opencognitos.github.io-d8b46a)](https://opencognitos.github.io)
+[![Website](https://img.shields.io/badge/website-opencognit.com-d8b46a)](https://opencognit.com)
 
 **[⬇ Für Linux herunterladen](https://github.com/OpenCognitOS/opencognit-releases/releases/latest/download/OpenCognit-linux-x86_64.AppImage)** · **[⬇ Für Windows herunterladen](https://github.com/OpenCognitOS/opencognit-releases/releases/latest/download/OpenCognit-windows-setup.exe)** · [.deb](https://github.com/OpenCognitOS/opencognit-releases/releases/latest/download/OpenCognit-linux-amd64.deb) · [Alle Releases](https://github.com/OpenCognitOS/opencognit-releases/releases) · [English](README.md)
 
@@ -56,7 +56,7 @@ Editor: Dateien des Projekts lesen und ändern, ohne die App zu verlassen.
 
 ## Datenschutz
 
-OpenCognit läuft auf deinem Rechner und nutzt die Abos, die du bei den Anbietern der CLIs schon hast. Es gibt keinen Server von uns dazwischen und keine Telemetrie. Das Ereignisprotokoll bleibt in einer lokalen Datenbank; vollständige Terminal-Ausgaben werden dort nie gespeichert. Die App selbst geht nur für eine kurze, dokumentierte Liste ins Netz: die Update-Prüfung, eine Abfrage des Paketnamens bei npm/PyPI, bevor ein Agent etwas installiert, und Funktionen, die du selbst einschaltest. Die [vollständige Liste](https://opencognitos.github.io/docs/de/security) nennt wann, wohin und was, damit du es mit einer Firewall wie OpenSnitch oder Portmaster nachprüfen kannst.
+OpenCognit läuft auf deinem Rechner und nutzt die Abos, die du bei den Anbietern der CLIs schon hast. Es gibt keinen Server von uns dazwischen und keine Telemetrie. Das Ereignisprotokoll bleibt in einer lokalen Datenbank; vollständige Terminal-Ausgaben werden dort nie gespeichert. Die App selbst geht nur für eine kurze, dokumentierte Liste ins Netz: die Update-Prüfung, eine Abfrage des Paketnamens bei npm/PyPI, bevor ein Agent etwas installiert, und Funktionen, die du selbst einschaltest. Die [vollständige Liste](https://opencognit.com/docs/de/security) nennt wann, wohin und was, damit du es mit einer Firewall wie OpenSnitch oder Portmaster nachprüfen kannst.
 
 ## Preis
 
