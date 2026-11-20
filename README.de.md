@@ -9,7 +9,7 @@
 Claude Code, Codex, Gemini CLI, Kimi und Hermes nebeneinander, einer steuert die anderen, und jedes Ergebnis wird geprüft, bevor es in deinem Projekt landet. Lokal, mit den Abos, die du schon hast.
 
 [![Latest release](https://img.shields.io/github/v/release/OpenCognitOS/opencognit-releases?color=d8b46a&label=release)](https://github.com/OpenCognitOS/opencognit-releases/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/OpenCognitOS/opencognit-releases/total?color=d8b46a)](https://github.com/OpenCognitOS/opencognit-releases/releases)
+[![Downloads](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fopencognit.com%2Fstats.json&query=%24.downloads&label=downloads&color=d8b46a)](https://github.com/OpenCognitOS/opencognit-releases/releases)
 [![Stars](https://img.shields.io/github/stars/Panto92/Opencognit?color=d8b46a)](https://github.com/Panto92/Opencognit/stargazers)
 [![Discord](https://img.shields.io/badge/Discord-join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/xASbhwdaS)
 [![Website](https://img.shields.io/badge/website-opencognit.com-d8b46a)](https://opencognit.com)
@@ -46,9 +46,9 @@ Der Orchestrator verteilt Aufträge und meldet, was fertig ist, was scheiterte u
 
 Guardrails: Ein Push zum Server wartet auf deine Freigabe.
 
-![Kosmos](docs/img/cosmos.png)
+![Atlas](docs/img/atlas.png)
 
-Kosmos: das Projekt als Karte, mit jeder Datei, die ein Agent heute angefasst hat.
+Atlas: das Projekt als Hirnkarte, ein Lappen je Bereich. Du siehst, welcher Agent wo arbeitet und welche Bereiche sich heute geändert haben.
 
 ![Editor](docs/img/editor.png)
 
