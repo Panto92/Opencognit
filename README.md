@@ -9,7 +9,7 @@
 Run Claude Code, Codex, Gemini CLI, Kimi and Hermes side by side, let one of them orchestrate the others, and have every result checked before it reaches your project. Locally, with the subscriptions you already have.
 
 [![Latest release](https://img.shields.io/github/v/release/OpenCognitOS/opencognit-releases?color=d8b46a&label=release)](https://github.com/OpenCognitOS/opencognit-releases/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/OpenCognitOS/opencognit-releases/total?color=d8b46a)](https://github.com/OpenCognitOS/opencognit-releases/releases)
+[![Downloads](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fopencognit.com%2Fstats.json&query=%24.downloads&label=downloads&color=d8b46a)](https://github.com/OpenCognitOS/opencognit-releases/releases)
 [![Stars](https://img.shields.io/github/stars/Panto92/Opencognit?color=d8b46a)](https://github.com/Panto92/Opencognit/stargazers)
 [![Discord](https://img.shields.io/badge/Discord-join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/xASbhwdaS)
 [![Website](https://img.shields.io/badge/website-opencognit.com-d8b46a)](https://opencognit.com)
@@ -46,9 +46,9 @@ The orchestrator hands out tasks and reports back what is done, what failed and 
 
 Guardrails: a push to the remote waits for your approval.
 
-![Cosmos](docs/img/cosmos.png)
+![Atlas](docs/img/atlas.png)
 
-Cosmos: the project as a map, with every file an agent touched today.
+Atlas: the project as a brain map, one lobe per area. You see which agent works where and which areas changed today.
 
 ![Editor](docs/img/editor.png)
 
