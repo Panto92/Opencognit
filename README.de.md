@@ -16,6 +16,8 @@ Claude Code, Codex, Gemini CLI, Kimi und Hermes nebeneinander, einer steuert die
 
 **[⬇ Für Linux herunterladen](https://github.com/OpenCognitOS/opencognit-releases/releases/latest/download/OpenCognit-linux-x86_64.AppImage)** · **[⬇ Für Windows herunterladen](https://github.com/OpenCognitOS/opencognit-releases/releases/latest/download/OpenCognit-windows-setup.exe)** · [.deb](https://github.com/OpenCognitOS/opencognit-releases/releases/latest/download/OpenCognit-linux-amd64.deb) · [Alle Releases](https://github.com/OpenCognitOS/opencognit-releases/releases) · [English](README.md)
 
+**macOS** (Apple Silicon, Beta) — im Terminal: `curl -fsSL https://opencognit.com/install.sh | sh`
+
 </div>
 
 ![Raster mit Agenten-Sessions](docs/img/grid.png)
@@ -71,6 +73,7 @@ Lade den Installer für dein System aus dem [neuesten Release](https://github.co
 |---|---|
 | Linux | `OpenCognit-linux-x86_64.AppImage` oder `OpenCognit-linux-amd64.deb` |
 | Windows | `OpenCognit-windows-setup.exe` |
+| macOS (Apple Silicon, Beta) | im Terminal: `curl -fsSL https://opencognit.com/install.sh \| sh` |
 
 Du brauchst mindestens eine der unterstützten CLIs, installiert und angemeldet. Der Einrichtungs-Assistent findet sie beim ersten Start.
 
